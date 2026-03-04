@@ -1026,7 +1026,7 @@ _CONFIGS = [
             extra_delta_transform=False,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader(
-            "gs://openpi-assets/checkpoints/pi05_base/params"
+            "./checkpoints/pi05_libero/params"
         ),
         freeze_filter=pi0_config.Pi0Config(
             pi05=True,
