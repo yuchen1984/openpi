@@ -463,6 +463,55 @@ class LeRobotDROIDDataConfig(DataConfigFactory):
 
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotDROIDJointPosDataConfig(DataConfigFactory):
+    """
+    Data config for custom DROID dataset in LeRobot format with absolute joint position actions.
+
+    Unlike LeRobotDROIDDataConfig (which assumes joint velocity actions), this config applies
+    DeltaActions/AbsoluteActions transforms to convert absolute joint positions to deltas for
+    training and back to absolute positions at inference — matching RLDSDroidDataConfig's
+    JOINT_POSITION action space handling.
+    """
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        repack_transform = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "observation/exterior_image_1_left": "exterior_image_1_left",
+                        "observation/exterior_image_2_left": "exterior_image_2_left",
+                        "observation/wrist_image_left": "wrist_image_left",
+                        "observation/joint_position": "joint_position",
+                        "observation/gripper_position": "gripper_position",
+                        "actions": "actions",
+                        "prompt": "prompt",
+                    }
+                )
+            ]
+        )
+        # Absolute joint position actions: convert to delta for training, back to absolute at inference.
+        # mask: first 7 dims (joints) are delta, last dim (gripper) stays absolute.
+        delta_action_mask = _transforms.make_bool_mask(7, -1)
+        data_transforms = _transforms.Group(
+            inputs=[droid_policy.DroidInputs(model_type=model_config.model_type)],
+            outputs=[droid_policy.DroidOutputs()],
+        )
+        data_transforms = data_transforms.push(
+            inputs=[_transforms.DeltaActions(delta_action_mask)],
+            outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+        )
+        model_transforms = ModelTransformFactory()(model_config)
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
 class TrainConfig:
     # Name of the config. Must be unique. Will be used to reference this config.
     name: tyro.conf.Suppress[str]
@@ -915,6 +964,85 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_droid/params"),
         num_train_steps=20_000,
         batch_size=32,
+    ),
+    #
+    # Fine-tuning pi05-DROID joint position model on Isaac Sim demonstrations (LoRA).
+    # Uses absolute joint position actions with delta/absolute transforms.
+    #
+    TrainConfig(
+        name="pi05_droid_jointpos_sim_finetune",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=32,
+            action_horizon=15,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotDROIDJointPosDataConfig(
+            repo_id="local/sim_droid_jointpos_50ep",
+            base_config=DataConfig(prompt_from_task=True),
+            assets=AssetsConfig(
+                # Reuse original DROID jointpos norm stats from the polaris checkpoint.
+                assets_dir="gs://openpi-assets/checkpoints/polaris/pi05_droid_jointpos_polaris/assets",
+                asset_id="droid",
+            ),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "gs://openpi-assets/checkpoints/polaris/pi05_droid_jointpos_polaris/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=5_000,
+        batch_size=2,
+        save_interval=500,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=5_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # pi0.5 LIBERO sim fine-tune config.
+    # For fine-tuning on simulated UF850 cloth pick-and-place data in LIBERO format.
+    # Data: convert_sim_to_lerobot.py --format libero --repo-id local/sim_libero_50ep
+    #
+    TrainConfig(
+        name="pi05_libero_sim_finetune",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/sim_libero_50ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "gs://openpi-assets/checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=5_000,
+        batch_size=2,
+        save_interval=500,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=5_000,
+            decay_lr=2e-6,
+        ),
     ),
     #
     # ALOHA Sim configs. This config is used to demonstrate how to train on a simple simulated environment.
