@@ -1012,12 +1012,49 @@ _CONFIGS = [
         ),
     ),
     #
-    # pi0.5 LIBERO sim fine-tune config.
+    # pi0.5 LIBERO sim fine-tune config (7-dim actions, no done signal).
     # For fine-tuning on simulated UF850 cloth pick-and-place data in LIBERO format.
     # Data: convert_sim_to_lerobot.py --format libero --repo-id local/sim_libero_50ep
     #
     TrainConfig(
         name="pi05_libero_sim_finetune",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/sim_libero_50ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_libero/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=5_000,
+        batch_size=2,
+        save_interval=500,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=5_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    # pi0.5 LIBERO sim fine-tune with done signal (8-dim actions).
+    # Same as above but action_dim=8 to include the done termination signal.
+    # Data: convert_sim_to_lerobot.py --format libero (produces 8-dim actions with done)
+    #
+    TrainConfig(
+        name="pi05_libero_sim_finetune_done",
         model=pi0_config.Pi0Config(
             pi05=True,
             action_horizon=10,
