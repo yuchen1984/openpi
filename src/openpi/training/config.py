@@ -287,6 +287,9 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
     """
 
     extra_delta_transform: bool = False
+    # Number of action dimensions in the dataset.  Standard LIBERO = 7,
+    # sim fine-tune with done signal = 8.
+    action_dim: int = 7
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
@@ -320,7 +323,7 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
         # replace the transforms below with your own.
         data_transforms = _transforms.Group(
             inputs=[libero_policy.LiberoInputs(model_type=model_config.model_type)],
-            outputs=[libero_policy.LiberoOutputs()],
+            outputs=[libero_policy.LiberoOutputs(action_dim=self.action_dim)],
         )
 
         # One additional data transform: pi0 models are trained on delta actions (relative to the first
@@ -1026,6 +1029,7 @@ _CONFIGS = [
             repo_id="local/sim_libero_50ep",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
+            action_dim=8,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader(
             "./checkpoints/pi05_libero/params"
