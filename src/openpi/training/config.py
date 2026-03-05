@@ -1063,7 +1063,7 @@ _CONFIGS = [
             action_expert_variant="gemma_300m_lora",
         ),
         data=LeRobotLiberoDataConfig(
-            repo_id="local/sim_libero_50ep",
+            repo_id="local/sim_cloth_50ep_v4done",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
             action_dim=8,
