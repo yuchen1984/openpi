@@ -192,6 +192,18 @@ class ResizeImages(DataTransformFn):
 
 
 @dataclasses.dataclass(frozen=True)
+class TruncateActions(DataTransformFn):
+    """Truncates actions to the first ``dim`` dimensions."""
+
+    dim: int
+
+    def __call__(self, data: DataDict) -> DataDict:
+        if "actions" in data:
+            data["actions"] = data["actions"][..., : self.dim]
+        return data
+
+
+@dataclasses.dataclass(frozen=True)
 class SubsampleActions(DataTransformFn):
     stride: int
 

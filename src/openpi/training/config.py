@@ -301,19 +301,22 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
         # For your own dataset, first figure out what keys your environment passes to the policy server
         # and then modify the mappings below so your dataset's keys get matched to those target keys.
         # The repack transform simply remaps key names here.
-        repack_transform = _transforms.Group(
-            inputs=[
-                _transforms.RepackTransform(
-                    {
-                        "observation/image": "image",
-                        "observation/wrist_image": "wrist_image",
-                        "observation/state": "state",
-                        "actions": "actions",
-                        "prompt": "prompt",
-                    }
-                )
-            ]
-        )
+        repack_inputs = [
+            _transforms.RepackTransform(
+                {
+                    "observation/image": "image",
+                    "observation/wrist_image": "wrist_image",
+                    "observation/state": "state",
+                    "actions": "actions",
+                    "prompt": "prompt",
+                }
+            )
+        ]
+        # Truncate actions to action_dim so that e.g. a 7-dim config training
+        # on an 8-dim dataset (with done signal) only sees the first 7 dims.
+        if self.action_dim < 8:
+            repack_inputs.append(_transforms.TruncateActions(dim=self.action_dim))
+        repack_transform = _transforms.Group(inputs=repack_inputs)
 
         # The data transforms are applied to the data coming from the dataset *and* during inference.
         # Below, we define the transforms for data going into the model (``inputs``) and the transforms
@@ -1026,7 +1029,7 @@ _CONFIGS = [
             action_expert_variant="gemma_300m_lora",
         ),
         data=LeRobotLiberoDataConfig(
-            repo_id="local/sim_libero_50ep",
+            repo_id="local/sim_cloth_102ep",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
         ),
@@ -1063,7 +1066,7 @@ _CONFIGS = [
             action_expert_variant="gemma_300m_lora",
         ),
         data=LeRobotLiberoDataConfig(
-            repo_id="local/sim_cloth_50ep_v4done",
+            repo_id="local/sim_cloth_102ep",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
             action_dim=8,
