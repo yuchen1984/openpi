@@ -1091,6 +1091,98 @@ _CONFIGS = [
         ),
     ),
     #
+    # NERO single-arm pocket pick fine-tuning (mirrors the UF850 cloth
+    # config but points at the NERO v4 LeRobot dataset and uses its own
+    # asset_id so norm stats stay correct).
+    #
+    TrainConfig(
+        name="pi05_libero_sim_finetune_nero_pick",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/sim_nero_pick_51ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_libero/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=8_000,
+        batch_size=4,
+        save_interval=1_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=8_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # ALOHA Sim fine-tuning config for bimanual cloth manipulation.
+    #
+    TrainConfig(
+        name="pi05_aloha_sim_finetune",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=4,
+            action_dim=14,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotAlohaDataConfig(
+            repo_id="local/sim_bimanual_cloth_50ep",
+            assets=AssetsConfig(asset_id="trossen"),
+            default_prompt="pick up the cloth and place it on the green target",
+            use_delta_joint_actions=False,
+            repack_transforms=_transforms.Group(
+                inputs=[
+                    _transforms.RepackTransform(
+                        {
+                            "images": {
+                                "cam_high": "cam_high",
+                                "cam_left_wrist": "cam_left_wrist",
+                                "cam_right_wrist": "cam_right_wrist",
+                            },
+                            "state": "qpos",
+                            "actions": "actions",
+                        }
+                    )
+                ]
+            ),
+            action_sequence_keys=("actions",),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_aloha/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=8000,
+        batch_size=2,
+        save_interval=1000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=8000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # ALOHA Sim configs. This config is used to demonstrate how to train on a simple simulated environment.
     #
     TrainConfig(
