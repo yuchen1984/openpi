@@ -67,6 +67,7 @@ class Pi0(_model.BaseModel):
     def __init__(self, config: pi0_config.Pi0Config, rngs: nnx.Rngs):
         super().__init__(config.action_dim, config.action_horizon, config.max_token_len)
         self.pi05 = config.pi05
+        self.action_dim_loss_weights = config.action_dim_loss_weights
         paligemma_config = _gemma.get_config(config.paligemma_variant)
         action_expert_config = _gemma.get_config(config.action_expert_variant)
         # TODO: rewrite gemma in NNX. For now, use bridge.
@@ -211,7 +212,17 @@ class Pi0(_model.BaseModel):
         )
         v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
 
-        return jnp.mean(jnp.square(v_t - u_t), axis=-1)
+        # Per-dim weighting (default uniform). Set
+        # Pi0Config.action_dim_loss_weights to a length-action_dim
+        # tuple to upweight specific dims — see comment on
+        # Pi0Config.action_dim_loss_weights.
+        per_dim_sq = jnp.square(v_t - u_t)
+        if self.action_dim_loss_weights is None:
+            return jnp.mean(per_dim_sq, axis=-1)
+        w = jnp.asarray(self.action_dim_loss_weights, dtype=per_dim_sq.dtype)
+        # Normalise so the average loss scale stays close to the
+        # uniform case (avoids needing to retune the LR).
+        return jnp.sum(w * per_dim_sq, axis=-1) / jnp.sum(w)
 
     @override
     def sample_actions(

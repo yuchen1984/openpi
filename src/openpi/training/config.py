@@ -1103,6 +1103,17 @@ _CONFIGS = [
             discrete_state_input=False,
             paligemma_variant="gemma_2b_lora",
             action_expert_variant="gemma_300m_lora",
+            # 4x weight on dim 6 (gripper_cmd) to force the model to
+            # learn confident close/open decisions instead of
+            # defaulting to the +1 (open) majority class. The other
+            # 31 dims keep weight 1. See
+            # uf850-experiment/docs/plan_gripper_loss_weighting.md.
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                4.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
         ),
         data=LeRobotLiberoDataConfig(
             repo_id="local/sim_nero_pick_51ep",
