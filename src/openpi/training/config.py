@@ -1116,7 +1116,7 @@ _CONFIGS = [
             ),
         ),
         data=LeRobotLiberoDataConfig(
-            repo_id="local/sim_nero_pick_51ep",
+            repo_id="local/sim_nero_pick_52ep_compact",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
             action_dim=8,
