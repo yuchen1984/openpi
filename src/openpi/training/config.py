@@ -1110,7 +1110,7 @@ _CONFIGS = [
             # uf850-experiment/docs/plan_gripper_loss_weighting.md.
             action_dim_loss_weights=(
                 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
-                4.0,                            # gripper_cmd (dim 6)
+                2.0,                            # gripper_cmd (dim 6) — was 4.0
                 1.0,                            # done (dim 7)
                 *([1.0] * 24),                  # padding dims 8..31
             ),
