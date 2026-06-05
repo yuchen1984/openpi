@@ -1141,6 +1141,151 @@ _CONFIGS = [
         ),
     ),
     #
+    # NERO single-arm pocket pick — pi05_BASE variant.
+    # Same hyperparameters as pi05_libero_sim_finetune_nero_pick but
+    # loads the unspecialised pi05_base checkpoint. Hypothesis: LIBERO
+    # post-training overwrites the cloth/laundry priors in pi05_base
+    # (openpi#692); starting from pi05_base should retain them and
+    # improve placement precision on the NERO suction-cloth task.
+    # See docs/vla_base_model_research.md for the rationale.
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_pick",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/sim_nero_pick_100ep_compact",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=8_000,
+        batch_size=4,
+        save_interval=1_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=8_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # NERO single-arm pick — fine-tune from pi0.5-base on the mixed
+    # LHS/RHS negY_flipcheck dataset (201 compacted episodes: ~103 negY
+    # + ~97 posY). Same model/loss as pi05_base_sim_finetune_nero_pick
+    # (pi05, gripper loss-weight 2.0, LoRA); only repo_id + the 24k/2k
+    # schedule differ.
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_negY_flipcheck",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/negY_flipcheck_201ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=4,
+        save_interval=2_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # NERO single-arm AgileX rigid-cube pick — fine-tune from pi0.5-base
+    # on the mixed cube dataset (100 episodes: red/green cube, start side
+    # negY/posY, target outline left/right all randomized; rot180 folded
+    # layout, hybrid FixedJoint+jaw grasp). Success is centroid distance,
+    # not IoU. Same model/loss as the cloth pick configs (pi05, gripper
+    # loss-weight 2.0, LoRA); 12k steps, ckpt every 1k, permanent every 4k.
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_cube",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_mixed_100ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=12_000,
+        batch_size=4,
+        save_interval=1_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=12_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # ALOHA Sim fine-tuning config for bimanual cloth manipulation.
     #
     TrainConfig(
