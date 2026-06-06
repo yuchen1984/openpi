@@ -1286,6 +1286,58 @@ _CONFIGS = [
         ),
     ),
     #
+    # FULL fine-tuning sibling of pi05_base_sim_finetune_nero_cube (the LoRA
+    # config above). Same data/model/loss, but trains ALL weights instead of
+    # LoRA adapters: NON-lora gemma variants (gemma_2b + gemma_300m), NO
+    # freeze_filter (nothing frozen), EMA on, and a LOWER LR (1e-5 vs the LoRA
+    # 2e-5) to avoid catastrophic forgetting of the pi0.5-base prior on this
+    # small (200-episode) dataset. Select it by NAME — this is the full-vs-LoRA
+    # switch:
+    #   LoRA : uv run scripts/train.py pi05_base_sim_finetune_nero_cube      --exp-name X
+    #   FULL : uv run scripts/train.py pi05_base_sim_finetune_nero_cube_full --exp-name X
+    # MEMORY: full fine-tuning of pi0.5 (~3.3B params) + AdamW + EMA needs an
+    # 80 GB A100 (40 GB will OOM). batch_size=8 is a conservative single-A100
+    # start; override per your GPU with `--batch-size N` (tyro), or shard across
+    # GPUs. If memory is tight, drop EMA with `--ema-decay None`.
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_cube_full",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            # NOTE: no *_lora variants → full gemma_2b + gemma_300m (all weights
+            # trainable).
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_mixed_200ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        # No freeze_filter → every parameter is fine-tuned (full FT).
+        ema_decay=0.99,
+        num_train_steps=20_000,
+        batch_size=8,
+        save_interval=1_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=500,
+            peak_lr=1e-5,
+            decay_steps=20_000,
+            decay_lr=1e-6,
+        ),
+    ),
+    #
     # ALOHA Sim fine-tuning config for bimanual cloth manipulation.
     #
     TrainConfig(
