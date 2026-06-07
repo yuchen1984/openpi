@@ -1338,6 +1338,55 @@ _CONFIGS = [
         ),
     ),
     #
+    # posY-ONLY sanity model — same LoRA config as pi05_base_sim_finetune_nero_cube
+    # but trained on the 100 posY episodes alone (local/nero_cube_posY_100ep). Tests
+    # whether posY fails in the mixed model from BIMODAL confusion (negY+posY need
+    # opposite swings) vs a fundamental posY difficulty: if posY-only succeeds, it's
+    # the former. Only the data differs (LoRA/loss/LR identical), so the comparison
+    # is clean. 16k steps.
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_cube_posY",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_posY_100ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=16_000,
+        batch_size=4,
+        save_interval=1_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=16_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # ALOHA Sim fine-tuning config for bimanual cloth manipulation.
     #
     TrainConfig(
