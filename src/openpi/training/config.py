@@ -1387,6 +1387,73 @@ _CONFIGS = [
         ),
     ),
     #
+    # Per-side single-side cube models for the base-vs-LIBERO 2x2 study. Each is
+    # the SAME LoRA recipe trained on ONE side's 100 episodes; the only knobs that
+    # vary are the base weights (pi05_base vs pi05_libero) and the data side
+    # (negY vs posY). posY/base is pi05_base_sim_finetune_nero_cube_posY above;
+    # these three complete the matrix. 16k steps.
+    #
+    TrainConfig(  # negY-only, pi0.5-BASE
+        name="pi05_base_sim_finetune_nero_cube_negY",
+        model=pi0_config.Pi0Config(
+            pi05=True, action_horizon=10, discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 1.0, *([1.0] * 24)),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_negY_100ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False, action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("./checkpoints/pi05_base/params"),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None, num_train_steps=16_000, batch_size=4,
+        save_interval=1_000, keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=200, peak_lr=2e-5, decay_steps=16_000, decay_lr=2e-6),
+    ),
+    TrainConfig(  # negY-only, pi0.5-LIBERO
+        name="pi05_libero_sim_finetune_nero_cube_negY",
+        model=pi0_config.Pi0Config(
+            pi05=True, action_horizon=10, discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 1.0, *([1.0] * 24)),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_negY_100ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False, action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("./checkpoints/pi05_libero/params"),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None, num_train_steps=16_000, batch_size=4,
+        save_interval=1_000, keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=200, peak_lr=2e-5, decay_steps=16_000, decay_lr=2e-6),
+    ),
+    TrainConfig(  # posY-only, pi0.5-LIBERO
+        name="pi05_libero_sim_finetune_nero_cube_posY",
+        model=pi0_config.Pi0Config(
+            pi05=True, action_horizon=10, discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 1.0, *([1.0] * 24)),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_posY_100ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False, action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("./checkpoints/pi05_libero/params"),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None, num_train_steps=16_000, batch_size=4,
+        save_interval=1_000, keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=200, peak_lr=2e-5, decay_steps=16_000, decay_lr=2e-6),
+    ),
+    #
     # ALOHA Sim fine-tuning config for bimanual cloth manipulation.
     #
     TrainConfig(
