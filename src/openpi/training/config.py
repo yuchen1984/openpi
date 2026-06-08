@@ -1274,14 +1274,17 @@ _CONFIGS = [
             action_expert_variant="gemma_300m_lora",
         ).get_freeze_filter(),
         ema_decay=None,
-        num_train_steps=24_000,
+        # Extended 24k → 40k (resume from the 24k ckpt with --resume). Cosine
+        # decay_steps also → 40k, so the LR re-extends (mild warm-restart bump
+        # ~8e-6 at the 24k resume point, re-decaying to 2e-6 by 40k).
+        num_train_steps=40_000,
         batch_size=4,
         save_interval=1_000,
         keep_period=4_000,
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=200,
             peak_lr=2e-5,
-            decay_steps=24_000,
+            decay_steps=40_000,
             decay_lr=2e-6,
         ),
     ),
