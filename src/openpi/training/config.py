@@ -1237,6 +1237,29 @@ _CONFIGS = [
         ),
     ),
     #
+    # FULL fine-tuning of the negY_flipcheck CLOTH pick (non-LoRA). Primarily a
+    # SERVING config for the A100 full-FT cloth checkpoints (nero_cloth_full_24k):
+    # non-LoRA gemma_2b + gemma_300m, no freeze_filter. Architecture must match the
+    # full-FT checkpoint; params load from --policy.dir, norm-stats from the ckpt
+    # assets / local/negY_flipcheck_201ep.
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_negY_flipcheck_full",
+        model=pi0_config.Pi0Config(
+            pi05=True, action_horizon=10, discrete_state_input=False,
+            action_dim_loss_weights=(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 1.0, *([1.0] * 24)),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/negY_flipcheck_201ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False, action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("./checkpoints/pi05_base/params"),
+        ema_decay=0.99, num_train_steps=24_000, batch_size=8,
+        save_interval=1_000, keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=500, peak_lr=1e-5, decay_steps=24_000, decay_lr=1e-6),
+    ),
+    #
     # NERO single-arm AgileX rigid-cube pick — fine-tune from pi0.5-base
     # on the mixed cube dataset (100 episodes: red/green cube, start side
     # negY/posY, target outline left/right all randomized; rot180 folded
