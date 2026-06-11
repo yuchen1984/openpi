@@ -1312,6 +1312,63 @@ _CONFIGS = [
         ),
     ),
     #
+    # COMBINED dataset (Phase-3 rework, 2026-06-11): local/nero_cube_combined_v2
+    # = mixed-200 + 100 new posY full trajectories + 136 RESample recovery clips,
+    # converted with side tokens in the prompt and negY oversampled 2x
+    # (--side-in-prompt --side-repeat negY:2 → ~288 negY / 292 posY ≈ 1:1; the raw
+    # set was already ~2:1 posY after the new data). The combined dataset's
+    # negY:2-weighted delta-Y quantiles are SYMMETRIC (posY -Y transport p05
+    # normalizes to -0.90, negY +Y p95 to +0.38 — both well in-band), so the
+    # quantile-norm out-of-band mechanism that plagued the cloth set is absent
+    # here → no _meanstd variant needed; this run tests the STEP-LIMIT lever
+    # (posY kept improving with steps). 60k SMOOTH cosine FROM SCRATCH (never a
+    # warm-restart resume — twice-documented regression). Same LoRA/model/loss as
+    # pi05_base_sim_finetune_nero_cube. save 4k / keep 8k retains 24k/40k/48k/56k.
+    # NB: 4090 24 GB — batch_size starts at 2 (verify it/s + no OOM in the first
+    # ~100 steps; drop to 1 if OOM); ~2x A100 step time expected.
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_cube_combined",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_combined_v2",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=60_000,
+        batch_size=2,
+        save_interval=4_000,
+        keep_period=8_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=60_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # FULL fine-tuning sibling of pi05_base_sim_finetune_nero_cube (the LoRA
     # config above). Same data/model/loss, but trains ALL weights instead of
     # LoRA adapters: NON-lora gemma variants (gemma_2b + gemma_300m), NO
