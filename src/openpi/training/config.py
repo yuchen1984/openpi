@@ -80,7 +80,9 @@ class DataConfig:
     # Model specific transforms. Will be applied after the data is normalized.
     model_transforms: _transforms.Group = dataclasses.field(default_factory=_transforms.Group)
     # If true, will use quantile normalization. Otherwise, normal z-score normalization will be used.
-    use_quantile_norm: bool = False
+    # When set explicitly (True/False) on a base_config passed to a DataConfigFactory, the explicit
+    # value wins; None means "auto" (quantile norm for every non-PI0 model type, the upstream default).
+    use_quantile_norm: bool | None = None
 
     # Names of keys that will be used by the data loader to generate the action sequence. The length of the
     # sequence is defined by the `action_horizon` field in the model config. This should be adjusted if your
@@ -184,7 +186,14 @@ class DataConfigFactory(abc.ABC):
             repo_id=repo_id,
             asset_id=asset_id,
             norm_stats=self._load_norm_stats(epath.Path(self.assets.assets_dir or assets_dirs), asset_id),
-            use_quantile_norm=model_config.model_type != ModelType.PI0,
+            # Respect an explicit base_config.use_quantile_norm override (e.g. the *_meanstd
+            # fine-tune variants); otherwise keep the upstream default of quantile norm for
+            # every non-PI0 model type.
+            use_quantile_norm=(
+                self.base_config.use_quantile_norm
+                if self.base_config is not None and self.base_config.use_quantile_norm is not None
+                else model_config.model_type != ModelType.PI0
+            ),
         )
 
     def _load_norm_stats(self, assets_dir: epath.Path, asset_id: str | None) -> dict[str, _transforms.NormStats] | None:
@@ -1237,6 +1246,59 @@ _CONFIGS = [
         ),
     ),
     #
+    # MEAN-STD A/B variant of pi05_base_sim_finetune_negY_flipcheck (2026-06-12
+    # endgame-precision Tier-0 gate). Identical model/data/schedule; the ONLY
+    # delta is use_quantile_norm=False → z-score (mean/std) normalization.
+    # Rationale: the flipcheck action stats are asymmetric in delta-x
+    # (q01=-0.0164 / q99=+0.0077) so quantile norm maps one transport direction
+    # out of the flow expert's [-1,1] band, and the quantile range (~0.022) is
+    # ~6x the std (~0.0035) so ~±2mm endgame corrections normalize ~3x weaker
+    # than under mean-std. openpi issues #763/#799/#817 report fine-tune quality
+    # restored by disabling quantile norm on small datasets. Norm stats file is
+    # a copy of the sibling's (mean/std fields come from the same sweep; the
+    # quantile fields simply go unused). Train FROM SCRATCH — never --resume.
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_negY_flipcheck_meanstd",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/negY_flipcheck_201ep",
+            base_config=DataConfig(prompt_from_task=True, use_quantile_norm=False),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=4,
+        save_interval=2_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # FULL fine-tuning of the negY_flipcheck CLOTH pick (non-LoRA). Primarily a
     # SERVING config for the A100 full-FT cloth checkpoints (nero_cloth_full_24k):
     # non-LoRA gemma_2b + gemma_300m, no freeze_filter. Architecture must match the
@@ -1346,6 +1408,115 @@ _CONFIGS = [
             repo_id="local/nero_cube_combined_v2",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=60_000,
+        batch_size=2,
+        save_interval=4_000,
+        keep_period=8_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=60_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # MEAN-STD A/B control for pi05_base_sim_finetune_nero_cube_combined
+    # (2026-06-12 endgame-precision Tier-0). combined_v2's quantiles are
+    # side-SYMMETRIC (the out-of-band mechanism is absent), but the quantile
+    # range (~0.027) is still ~5x the std (~0.0055), so quantile norm weakens
+    # the ~±2mm endgame-correction signal ~2.5x vs mean-std. This run isolates
+    # that fine-delta effect on the cube task. Identical 60k smooth schedule;
+    # the ONLY delta is use_quantile_norm=False. FROM SCRATCH — never --resume.
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_cube_combined_meanstd",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_combined_v2",
+            base_config=DataConfig(prompt_from_task=True, use_quantile_norm=False),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=60_000,
+        batch_size=2,
+        save_interval=4_000,
+        keep_period=8_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=60_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # CHUNK-WISE DELTA variant (2026-06-12 endgame-precision direction B).
+    # Dataset local/nero_cube_combined_v3_chunkwise = same source episodes as
+    # combined_v2 but converted with --delta-mode chunkwise: actions store the
+    # ABSOLUTE next-frame EE pose [pos(3), axis_angle(3)] (same convention as
+    # the state vector). extra_delta_transform=True pushes
+    # DeltaActions(make_bool_mask(6,-1)) which subtracts the CHUNK-START state
+    # broadcast over the whole horizon → chunk-wise deltas (within-chunk error
+    # O(1) instead of O(k); "Demystifying Action Space Design" ICLR 2026:
+    # chunk-wise > step-wise by >10pp). Serving inverts via AbsoluteActions →
+    # the websocket returns ABSOLUTE EE pose targets; the demo must run with
+    # the matching --action-mode chunkwise. Norm stats MUST be computed with
+    # compute_norm_stats on THIS config (the sweep then sees post-DeltaActions
+    # chunk-wise deltas) — never copied from a stepwise sibling. Mean-std norm:
+    # chunk-wise deltas mix horizons k=1..10 so quantiles are even less
+    # meaningful, and the eval ladder isolates variables as
+    # v2+quantile → v2+meanstd → v3chunkwise+meanstd. FROM SCRATCH.
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_cube_chunkwise",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # chunkwise delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_combined_v3_chunkwise",
+            base_config=DataConfig(prompt_from_task=True, use_quantile_norm=False),
+            extra_delta_transform=True,
             action_dim=8,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader(
