@@ -1540,6 +1540,58 @@ _CONFIGS = [
         ),
     ),
     #
+    # CHUNK-WISE + QUANTILE "best-of-both" (2026-06-14 ablation). The chunkwise
+    # run (mean-std) gave the best negY precision but mean-std broke cube posY
+    # GRASP (gripper dim mean-std mean=+0.31 open-bias suppresses the close
+    # command on the weaker posY side); the v2 quantile baseline grasped posY.
+    # This variant keeps the chunk-wise action representation (negY precision)
+    # but uses QUANTILE norm (symmetric gripper ±1 → posY grasp restored).
+    # Identical to pi05_base_sim_finetune_nero_cube_chunkwise except
+    # use_quantile_norm is left auto (→True for pi05). Reuses the v3 chunkwise
+    # dataset + its norm_stats.json (which already contains quantile fields).
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_cube_chunkwise_quantile",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # chunkwise delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_combined_v3_chunkwise",
+            base_config=DataConfig(prompt_from_task=True),  # use_quantile_norm auto→True
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=60_000,
+        batch_size=2,
+        save_interval=4_000,
+        keep_period=8_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=60_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # FULL fine-tuning sibling of pi05_base_sim_finetune_nero_cube (the LoRA
     # config above). Same data/model/loss, but trains ALL weights instead of
     # LoRA adapters: NON-lora gemma variants (gemma_2b + gemma_300m), NO
