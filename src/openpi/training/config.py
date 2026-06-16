@@ -1322,6 +1322,61 @@ _CONFIGS = [
         lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=500, peak_lr=1e-5, decay_steps=24_000, decay_lr=1e-6),
     ),
     #
+    # REAL-ROBOT UF850 cube pick — LoRA fine-tune from pi0.5-base on
+    # real_cube_v4 (106 episodes, 31,773 frames @10Hz; one global + one
+    # wrist camera, both 256x256; step-wise delta actions). Repacked from
+    # the nero-exp v3.0 LeRobot dataset to v2.1 via
+    # scripts/convert_real_v3_to_openpi.py → local/real_cube_v4_106ep.
+    # Schema is the standard LIBERO one (image, wrist_image, state(8),
+    # actions(8)); identical model/loss/LoRA to the sim cube config.
+    # NB: the recorded GRIPPER channel is CONSTANT (state grip=[0,0],
+    # action grip=-1 throughout) — the model learns position deltas + the
+    # done flag; gripper loss-weight 2.0 is harmless on a constant target.
+    # 4090 24 GB → batch_size=2 (verify it/s + no OOM in first ~100 steps;
+    # drop to 1 if OOM). 30k smooth cosine FROM SCRATCH. save 2k / keep 4k.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_real_cube_v4",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/real_cube_v4_106ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # NERO single-arm AgileX rigid-cube pick — fine-tune from pi0.5-base
     # on the mixed cube dataset (100 episodes: red/green cube, start side
     # negY/posY, target outline left/right all randomized; rot180 folded
