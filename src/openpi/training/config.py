@@ -1377,6 +1377,54 @@ _CONFIGS = [
         ),
     ),
     #
+    # SAME real_cube_v4 LoRA fine-tune, but starting from the LIBERO-tuned
+    # pi0.5 checkpoint (./checkpoints/pi05_libero/params) instead of pi0.5-base
+    # — a base-vs-libero start-checkpoint A/B (cf. docs nero_cube_base_vs_libero).
+    # Identical dataset / model / LoRA / 30k schedule; ONLY the weight_loader
+    # differs.
+    #
+    TrainConfig(
+        name="pi05_libero_finetune_real_cube_v4",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/real_cube_v4_106ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_libero/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # NERO single-arm AgileX rigid-cube pick — fine-tune from pi0.5-base
     # on the mixed cube dataset (100 episodes: red/green cube, start side
     # negY/posY, target outline left/right all randomized; rot180 folded
