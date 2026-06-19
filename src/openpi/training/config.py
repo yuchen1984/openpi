@@ -1425,6 +1425,104 @@ _CONFIGS = [
         ),
     ),
     #
+    # real_cube_v4 with a RECONSTRUCTED gripper channel. The original
+    # real_cube_v4 recording captured NO gripper telemetry (state[6:8]=[0,0],
+    # action[6]=-1 for every frame — a dead channel, so the policy can't learn
+    # grasp/release). scripts/convert_real_v3_to_openpi.py --reconstruct-gripper
+    # synthesizes a binary open/close signal from the EE-z trajectory (open ->
+    # close at the pick descent -> closed through transport -> open at the place
+    # descent) and writes local/real_cube_v4_106ep_grip. Everything else is
+    # identical to pi05_base/libero_finetune_real_cube_v4; the gripper dim (6)
+    # already carries loss-weight 2.0, now over a VARYING target. base-vs-libero
+    # start A/B preserved. 30k LoRA, batch 2, save 2k / keep 4k.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_real_cube_v4_grip",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/real_cube_v4_106ep_grip",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # SAME reconstructed-gripper real_cube_v4 fine-tune, started from the
+    # LIBERO-tuned pi0.5 checkpoint instead of pi0.5-base (start-checkpoint A/B).
+    #
+    TrainConfig(
+        name="pi05_libero_finetune_real_cube_v4_grip",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/real_cube_v4_106ep_grip",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_libero/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # NERO single-arm AgileX rigid-cube pick — fine-tune from pi0.5-base
     # on the mixed cube dataset (100 episodes: red/green cube, start side
     # negY/posY, target outline left/right all randomized; rot180 folded
@@ -1473,6 +1571,56 @@ _CONFIGS = [
             warmup_steps=200,
             peak_lr=2e-5,
             decay_steps=40_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # v4 ENDGAME-OVERSAMPLE (Tier-1 endgame-precision lever, 2026-06-18). Same
+    # LoRA/model/loss as pi05_base_sim_finetune_nero_cube; only the dataset differs
+    # → local/nero_cube_v4_eg3_200ep adds 2x endgame-only episodes per source
+    # (converter --endgame-oversample 3 --endgame-frac 0.2) to upweight the
+    # precision-critical descent+place. Clean A/B: 10 Hz (same inference parity),
+    # 24k SMOOTH cosine FROM SCRATCH (no warm-restart). Tests whether endgame
+    # oversampling improves late-stage placement vs the baseline LoRA (best 9.3 cm
+    # negY / 14.3 cm posY, 0 success) — RPD closed, full FT didn't beat LoRA.
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_cube_v4_eg",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                2.0,
+                1.0,
+                *([1.0] * 24),
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_v4_eg3_200ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=4,
+        save_interval=1_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
             decay_lr=2e-6,
         ),
     ),
