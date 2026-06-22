@@ -1575,6 +1575,57 @@ _CONFIGS = [
         ),
     ),
     #
+    # 2 cm cube + LEFT-side low grazing global camera (real_cube_v4-like view),
+    # 2026-06-21. A fresh 200-ep mixed dataset (100 negY + 100 posY, red/green
+    # random, rot180 folded) recorded with --cube-size-m 0.02 and the left
+    # camera; converted with --overhead-rot-deg 0 (the left view is already
+    # upright). Same pi0.5 LoRA / model / loss (gripper dim-6 weight 2.0) as
+    # pi05_base_sim_finetune_nero_cube; 24k SMOOTH cosine FROM SCRATCH (no
+    # warm-restart). Inference parity: serve with --cube-size-m 0.02 and
+    # --overhead-rot-deg 0.
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_cube_2cm_leftcam",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_2cm_leftcam_200ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=4,
+        save_interval=1_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # v4 ENDGAME-OVERSAMPLE (Tier-1 endgame-precision lever, 2026-06-18). Same
     # LoRA/model/loss as pi05_base_sim_finetune_nero_cube; only the dataset differs
     # → local/nero_cube_v4_eg3_200ep adds 2x endgame-only episodes per source
@@ -1678,6 +1729,56 @@ _CONFIGS = [
             warmup_steps=200,
             peak_lr=2e-5,
             decay_steps=60_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # v4b ENDGAME-OVERSAMPLE 2x on COMBINED (clean retry, 2026-06-19). The v4
+    # 3x-on-mixed test was confounded (mixed lacks combined_v2's posY transport
+    # fix; 3x over-weighted the place → oscillation). This removes both: same
+    # combined recipe (posY-fixed dataset, side prompts) but dataset
+    # local/nero_cube_v4b_eg2_combined = combined raw + --side-repeat negY:2 +
+    # --endgame-oversample 2 --endgame-frac 0.2 (gentler 2x). 24k SMOOTH (sweet
+    # spot) to compare against combined_v2 @24k (negY 9.3 cm best). Last endgame-
+    # precision BC lever before stopping.
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_cube_v4b_eg2",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                2.0,
+                1.0,
+                *([1.0] * 24),
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_v4b_eg2_combined",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
             decay_lr=2e-6,
         ),
     ),
