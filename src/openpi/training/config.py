@@ -1377,6 +1377,63 @@ _CONFIGS = [
         ),
     ),
     #
+    # Real-robot UF850 CLOTH pick-and-place (real_cloth_v1 + real_cloth_v2,
+    # curated). 74 episodes / 33,555 frames @10Hz, one global + one wrist camera
+    # (256x256), step-wise delta actions — the same LIBERO schema as
+    # real_cube_v4. Combined from two nero-exp recordings via
+    #   scripts/convert_real_v3_to_openpi.py
+    #     --src real_cloth_v1/uf850/libero --exclude "2,7,8,9,12"
+    #     --src real_cloth_v2/uf850/libero --exclude "0,1,55,66"
+    #     --repo-id local/real_cloth_v1v2_74ep
+    # Unlike real_cube_v4, the GRIPPER channel is LIVE: this is an on/off suction
+    # unit so the signal is BINARY (state grip toggles [0,0]<->[0.04,-0.04],
+    # action[6] toggles -1/+1). No --reconstruct-gripper needed; gripper dim-6
+    # loss-weight 2.0 now acts over a real varying target (the suction on/off).
+    # pi0.5-BASE start. Identical model/LoRA/30k schedule to real_cube_v4.
+    # 4090 24 GB -> batch_size=2. 30k smooth cosine FROM SCRATCH. save 2k/keep 4k.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_real_cloth_v1v2",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6) — suction on/off
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/real_cloth_v1v2_74ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # SAME real_cube_v4 LoRA fine-tune, but starting from the LIBERO-tuned
     # pi0.5 checkpoint (./checkpoints/pi05_libero/params) instead of pi0.5-base
     # — a base-vs-libero start-checkpoint A/B (cf. docs nero_cube_base_vs_libero).
