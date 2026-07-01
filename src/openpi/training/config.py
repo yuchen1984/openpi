@@ -1434,6 +1434,66 @@ _CONFIGS = [
         ),
     ),
     #
+    # Real UF850 cloth-NUDGE-and-align, pi0.5-BASE LoRA. Combined from four
+    # nero-exp recordings (nudge_cloth v2/v3/v4/v5, 85 eps / 69,381 frames) via
+    #   scripts/convert_real_v3_to_openpi.py
+    #     --src nudge_cloth_v2/uf850/libero --gripper-mode open
+    #     --src nudge_cloth_v3/uf850/libero --gripper-mode open
+    #     --src nudge_cloth_v4/uf850/libero --gripper-mode leader
+    #     --src nudge_cloth_v5/uf850/libero --gripper-mode leader
+    #     --canonicalize-ori-deltas --repo-id local/nudge_cloth_v2345_85ep
+    # The acting hand is an OmniHand whose pose is a CONTINUOUS interpolation
+    # weight, so the gripper action dim (6) regresses a normalized openness
+    # s=clip(leader_width_mm/80,0,1) (1=open) rather than a binary bit. v2/v3 have
+    # no live hand signal -> forced fully open; v4/v5 use the operator's real
+    # continuous leader-gripper width; v5 tactile is ignored (not in the libero
+    # schema). Bounded [0,1] target -> no ±2π divergence risk, but the pose-delta
+    # canonicalizer is still applied. gripper dim-6 loss-weight 2.0 (continuous,
+    # sparse-closing target — ~95% fully open). 4090 24 GB -> batch_size=2. Larger
+    # set than cloth_v1v2 -> 50k smooth cosine FROM SCRATCH. save 2k / keep 4k.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_nudge_cloth",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6) — continuous openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_cloth_v2345_85ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=50_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=50_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # SAME real_cube_v4 LoRA fine-tune, but starting from the LIBERO-tuned
     # pi0.5 checkpoint (./checkpoints/pi05_libero/params) instead of pi0.5-base
     # — a base-vs-libero start-checkpoint A/B (cf. docs nero_cube_base_vs_libero).
