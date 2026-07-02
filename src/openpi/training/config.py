@@ -21,6 +21,7 @@ import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
 import openpi.shared.download as _download
+import openpi.shared.nnx_utils as nnx_utils
 import openpi.shared.normalize as _normalize
 import openpi.training.droid_rlds_dataset as droid_rlds_dataset
 import openpi.training.misc.polaris_config as polaris_config
@@ -1243,6 +1244,127 @@ _CONFIGS = [
             peak_lr=2e-5,
             decay_steps=24_000,
             decay_lr=2e-6,
+        ),
+    ),
+    #
+    # EXPERT-ONLY variant of pi05_base_sim_finetune_negY_flipcheck (2026-07-02
+    # RL-exploration Track C1; ablation proposed in docs/openpi_recipe_audit.md
+    # §8). Freezes the ENTIRE PaliGemma VLM — vision tower (.*img.*) AND
+    # language backbone — and trains ONLY the 300M action expert's LoRA
+    # adapters. The stock get_freeze_filter() cannot express this: with both
+    # variants LoRA it trains the PaliGemma LoRA adapters too (Knowledge
+    # Insulation is NOT applied, so action-flow gradients reach the VLM), and
+    # with paligemma_variant="gemma_2b" it would train the full VLM. The
+    # custom filter freezes Any(img params, llm params that are NOT the
+    # action expert suffix's (_1) LoRA params). paligemma stays the LoRA
+    # variant so checkpoint shapes/serving match the sibling configs (its
+    # adapters simply never train — LoRA B=0 ⇒ identity).
+    # Purpose: (a) A/B whether VLM-frozen BC matches standard LoRA quality,
+    # (b) the base recipe for reward-weighted iterative SFT (Track C2),
+    # where only the action module should move between iterations.
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_negY_flipcheck_expert_only",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/negY_flipcheck_201ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=nnx.Any(
+            # entire vision tower
+            nnx_utils.PathRegex(".*img.*"),
+            # all llm params EXCEPT the action-expert (_1) LoRA adapters
+            nnx.All(
+                nnx_utils.PathRegex(".*llm.*"),
+                nnx.Not(nnx.All(
+                    nnx_utils.PathRegex(".*llm.*_1.*"),
+                    nnx_utils.PathRegex(".*lora.*"),
+                )),
+            ),
+        ),
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=4,
+        save_interval=2_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # RWSFT iteration config (RL-exploration Track C2, 2026-07-02): one
+    # reward-weighted-SFT step of the iterative loop driven by
+    # uf850-experiment/experiments/rl_cloth/rwsft_loop.py. Same expert-only
+    # freeze as ..._expert_only (only the 300M action expert moves between
+    # iterations); data = the top-quantile scored rollouts the loop converts
+    # to local/rwsft_iter each iteration; weights warm-start from the
+    # ./checkpoints/rwsft_prev symlink the loop re-points at the previous
+    # iteration's ckpt. Short schedule + low peak LR (refinement, not
+    # from-scratch). Norm stats are COPIED from the flipcheck sibling by the
+    # loop — never recomputed from rollout data.
+    #
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_pick_rwsft",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6)
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/rwsft_iter",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/rwsft_prev/params"
+        ),
+        freeze_filter=nnx.Any(
+            nnx_utils.PathRegex(".*img.*"),
+            nnx.All(
+                nnx_utils.PathRegex(".*llm.*"),
+                nnx.Not(nnx.All(
+                    nnx_utils.PathRegex(".*llm.*_1.*"),
+                    nnx_utils.PathRegex(".*lora.*"),
+                )),
+            ),
+        ),
+        ema_decay=None,
+        num_train_steps=4_000,
+        batch_size=4,
+        save_interval=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=100,
+            peak_lr=1e-5,
+            decay_steps=4_000,
+            decay_lr=1e-6,
         ),
     ),
     #
