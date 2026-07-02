@@ -1616,6 +1616,112 @@ _CONFIGS = [
         ),
     ),
     #
+    # nudge_cloth TACTILE A/B (v5 ONLY — only v5 recorded observation.tactile).
+    # Real-robot testing showed the image-only nudge model mis-judges finger
+    # height/position. Root suspicion: no tactile feedback AND — a key discovery —
+    # the base config sets discrete_state_input=False, so pi0.5 discards the state
+    # vector ENTIRELY (pi05 has no continuous state_proj; the discrete-state
+    # tokenizer path is gated off). The image-only model had NO proprioception at
+    # all. Both configs below flip discrete_state_input=True (the pi05 default) so
+    # state finally reaches the model as discretized prompt tokens.
+    #   PROPRIO : 8-dim state (EE pose + gripper), no tactile — isolates what
+    #             proprioception alone buys over the image-only baseline.
+    #   TACTILE : 24-dim state = proprio + the 16-dim INDEX-finger tactile pad
+    #             (observation.tactile[16:32], raw counts, appended by the
+    #             converter's --index-tactile on). tactile − proprio = tactile's
+    #             marginal contribution. Same base weights, LR, steps, v5 frames.
+    # Convert (v5 only, 62 eps / 50,743 frames):
+    #   scripts/convert_real_v3_to_openpi.py
+    #     --src nudge_cloth_v5/uf850/libero --gripper-mode leader [--index-tactile on]
+    #     --canonicalize-ori-deltas --repo-id local/nudge_cloth_v5_{tactile,proprio}_62ep
+    # State is an INPUT (not scored) so action_dim_loss_weights are unchanged
+    # (gripper dim6 = 2.0). action_dim stays 8; state width is inferred from the
+    # dataset. At inference nero-exp must send the same-width observation/state
+    # (24-dim = libero-8 + 16 raw index taxels for TACTILE).
+    #
+    TrainConfig(
+        name="pi05_base_finetune_nudge_cloth_proprio",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # feed the 8-dim proprio state (baseline dropped it)
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6) — continuous openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_cloth_v5_proprio_62ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=50_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=50_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    TrainConfig(
+        name="pi05_base_finetune_nudge_cloth_tactile",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # feed the 24-dim proprio+tactile state
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6) — continuous openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_cloth_v5_tactile_62ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=50_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=50_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # SAME real_cube_v4 LoRA fine-tune, but starting from the LIBERO-tuned
     # pi0.5 checkpoint (./checkpoints/pi05_libero/params) instead of pi0.5-base
     # — a base-vs-libero start-checkpoint A/B (cf. docs nero_cube_base_vs_libero).
