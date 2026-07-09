@@ -1258,6 +1258,7 @@ _CONFIGS = [
     #
     TrainConfig(
         name="pi05_base_sim_finetune_cloth_aimed_mix",
+        wandb_enabled=False,   # headless/no-tty run — avoid the api-key prompt
         model=pi0_config.Pi0Config(
             pi05=True,
             action_horizon=10,
