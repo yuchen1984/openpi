@@ -1773,6 +1773,137 @@ _CONFIGS = [
         ),
     ),
     #
+    # ---- nudge_template: "nudge the template and align its corner against the
+    # wedge" (real NERO + OmniHand, hand held CONSTANT FULLY OPEN — a pushing task,
+    # no grasp). Three 30k LoRA runs that differ ONLY in what the state carries, so
+    # the marginal value of each haptic channel can be read off directly:
+    #   V1  8d  = stock pi0.5 LIBERO state (ee_pos, axis_angle, gripper_2d)
+    #   V2 88d  = V1 + 80 five-finger tactile taxels (Thumb..Pinky, 16 each)
+    #   V3 95d  = V2 + 7 joint torques        (v1 recording ONLY — v0 has no torque)
+    # All three set discrete_state_input=True: with the pi0-style False (the
+    # nudge_cloth baseline) pi0.5 DISCARDS the state vector entirely, so V1 would be
+    # image-only and V2/V3's tactile/torque would never reach the model.
+    # Data (scripts/convert_real_v3_to_openpi.py, --canonicalize-ori-deltas):
+    #   --src nudge_template_v0/uf850/libero --exclude 12   (ep12 = the 1201-frame
+    #   --src nudge_template_v1/uf850/libero --exclude ""    failure episode)
+    #   [--index-tactile fingers5] [--joint-torque on]
+    # The tactile/torque dims are PRE-SCALED to [-1,1] by the converter (tactile
+    # raw/255*2-1; torque clip(tau/TORQUE_SCALE_NM)) and their norm stats are then
+    # patched to identity (scripts/patch_norm_stats_extras.py) — otherwise quantile
+    # norm degenerates on the sparse taxels (q01==q99==0) and crushes each contact
+    # into the top bin. The deploy GUI must apply the SAME scaling.
+    # Gripper dim 6 is a constant 1.0 (open) -> loss weight back to 1.0 (no upweight).
+    # max_token_len: the discrete-state tokenizer costs ~3.8 tokens/state-dim, so the
+    # 88/95-dim states need ~345/367 tokens -> 448 (the 8-dim V1 fits the 200 default).
+    #
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 8-dim LIBERO proprio state
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_v01_111ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_tac5",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 88-dim = LIBERO 8 + 80 five-finger taxels
+            max_token_len=448,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_v01_tac5_111ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_tac5_torque",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 95-dim = LIBERO 8 + 80 taxels + 7 torques
+            max_token_len=448,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_v1_tac5_torque_51ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # SAME real_cube_v4 LoRA fine-tune, but starting from the LIBERO-tuned
     # pi0.5 checkpoint (./checkpoints/pi05_libero/params) instead of pi0.5-base
     # — a base-vs-libero start-checkpoint A/B (cf. docs nero_cube_base_vs_libero).
