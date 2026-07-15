@@ -1907,6 +1907,124 @@ _CONFIGS = [
         ),
     ),
     #
+    # AUGMENTED round (2026-07-15): fold nudge_template_v4 (21 eps) into the same
+    # three-way A/B. v2/v3 are NOT usable — they have no uf850/libero EE-pose export
+    # (only a joint-space top-level export) and no frames.npz to rebuild it offline.
+    # v0 still lacks torque, so the torque run stays v1+v4. Data grew ~1.2-1.5x, so
+    # the schedule is bumped 30k -> 40k (num_train_steps AND decay_steps). Everything
+    # else is identical to the v0+v1 configs above; the originals are left intact.
+    #   V1  8d  = v0(ex12)+v1+v4  (132 eps)
+    #   V2 72d  = V1 + 64 four-finger taxels (fingers4)  (132 eps)
+    #   V3 79d  = V2 + 7 joint torques  (v1+v4 only, 72 eps)
+    #
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_aug",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 8-dim LIBERO proprio state
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_aug_132ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=40_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=40_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_tac4_aug",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 72-dim = LIBERO 8 + 64 taxels (no dead thumb)
+            max_token_len=384,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_aug_tac4_132ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=40_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=40_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_tac4_torque_aug",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 79-dim = LIBERO 8 + 64 taxels + 7 torques
+            max_token_len=384,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_aug_tac4_torque_72ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=40_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=40_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # SAME real_cube_v4 LoRA fine-tune, but starting from the LIBERO-tuned
     # pi0.5 checkpoint (./checkpoints/pi05_libero/params) instead of pi0.5-base
     # — a base-vs-libero start-checkpoint A/B (cf. docs nero_cube_base_vs_libero).
