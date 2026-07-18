@@ -2431,6 +2431,106 @@ _CONFIGS = [
         ),
     ),
     #
+    # RLDG-in-Isaac (CR-2, 2026-07-18). Champion combined recipe + distilled
+    # factorized-SAC rollouts (experiments/rl_cloth/record_rldg.py): dataset
+    # local/nero_cube_rldg_v1 = 100 posY (rl_cube_posY_retry 1.68 cm, ≤3 cm) +
+    # 100 negY (rl_cube_a1 4.65 cm, ≤5 cm) [+ optional nominal]. Zero cross-sim
+    # gap (same Isaac scene/cams as BC data). Target: BREAK the posY wall
+    # (champion posY 14.3 cm walled; SAC posY 1.68 cm). Eval NERO_EXT_CAM
+    # top-down + LANDING=episodes_nero_cube_combined.
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_cube_rldg",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                2.0,
+                1.0,
+                *([1.0] * 24),
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_rldg_v1",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        wandb_enabled=False,
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=2,
+        save_interval=4_000,
+        keep_period=8_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # FLARE-RETRY A1 (2026-07-17). Champion combined recipe + FLARE-Retry
+    # perturbation-and-bridging data (experiments/rl_cloth/record_flare_retry.py):
+    # dataset local/nero_cube_flare_v1 = 136 nominal (combined subset, posY-fixed)
+    # + 250 retry eps (pre_grasp/pre_place/post_grasp, both sides, posY-weighted)
+    # → attacks the posY grasp-initiation wall from the data side. 24k SMOOTH to
+    # compare against combined_v2 @24k (negY 9.3 cm best, posY walled). Eval with
+    # NERO_EXT_CAM top-down + LANDING=episodes_nero_cube_combined + perturbed-start.
+    TrainConfig(
+        name="pi05_base_sim_finetune_nero_cube_flare",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                2.0,
+                1.0,
+                *([1.0] * 24),
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nero_cube_flare_v1",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        wandb_enabled=False,   # headless/no-tty run — avoid the api-key prompt
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=2,
+        save_interval=4_000,
+        keep_period=8_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # v4b ENDGAME-OVERSAMPLE 2x on COMBINED (clean retry, 2026-06-19). The v4
     # 3x-on-mixed test was confounded (mixed lacks combined_v2's posY transport
     # fix; 3x over-weighted the place → oscillation). This removes both: same
