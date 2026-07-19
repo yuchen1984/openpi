@@ -1256,6 +1256,54 @@ _CONFIGS = [
     # template datasets never demonstrated (the structural cause of the
     # cloth IoU plateau); mixing retains grasp/transport coverage.
     #
+    # A2 cloth FLARE (2026-07-19). aimed-mix recipe + truncated cloth FLARE-retry
+    # clips (record_flare_retry.py --object cloth + truncate_flare_clips.py):
+    # dataset local/cloth_aimed_flare_v1 = 351 nominal (aimed_v1 150 + flipcheck
+    # 201, SURVIVED — a fair FLARE test, unlike A1 cube) + subset of truncated
+    # cloth flare (kept ≤40% frames per the A1 lesson). Tests whether recovery
+    # data helps beyond the (marginal/dead-end) aimed-mix. Eval TASK=cloth.
+    TrainConfig(
+        name="pi05_base_sim_finetune_cloth_aimed_flare",
+        wandb_enabled=False,
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                2.0,
+                1.0,
+                *([1.0] * 24),
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/cloth_aimed_flare_v1",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=4,
+        save_interval=2_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     TrainConfig(
         name="pi05_base_sim_finetune_cloth_aimed_mix",
         wandb_enabled=False,   # headless/no-tty run — avoid the api-key prompt
