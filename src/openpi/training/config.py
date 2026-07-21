@@ -2207,6 +2207,113 @@ _CONFIGS = [
         ),
     ),
     #
+    # CHUNKWISE action-space variant of real_cloth_v1v2 (2026-07-21 de-jitter
+    # round, uf850 docs/vla_action_space_dejitter.md). Dataset
+    # local/real_cloth_v1v2_74ep_chunkwise = the same 74 curated episodes
+    # converted with --delta-mode chunkwise: action[:6] is the ABSOLUTE
+    # next-frame EE pose with the absolute axis-angle unwrapped onto one
+    # continuous branch per episode. Note the stepwise twin needed
+    # --canonicalize-ori-deltas for this data (+-2pi spikes in the recorded
+    # orientation-DELTA channel); chunkwise stores no deltas, so the unwrap
+    # subsumes that fix. extra_delta_transform=True re-derives chunk-relative
+    # deltas. 8-dim state (no extras). Otherwise identical to
+    # pi05_base_finetune_real_cloth_v1v2, including the 30k schedule and the
+    # gripper dim-6 loss weight 2.0 over the real binary suction target.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_real_cloth_v1v2_chunkwise",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # chunkwise abs pos, abs ori
+                2.0,                            # gripper_cmd (dim 6) — suction on/off
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/real_cloth_v1v2_74ep_chunkwise",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # CHUNKWISE action-space variant of the recovprompt tac4 config (2026-07-21
+    # de-jitter round, uf850 docs/vla_action_space_dejitter.md). Queued behind
+    # pi05_base_finetune_nudge_template_tac4_aug_chunkwise so the 2x2 is complete:
+    #   {standard prompt, recovery prompt} x {stepwise, chunkwise}
+    # Dataset local/nudge_template_recovprompt_tac4_132ep_chunkwise = the SAME
+    # relabeled sources (v4 carries the recovery instruction) converted with
+    # --delta-mode chunkwise: action[:6] is the ABSOLUTE next-frame EE pose, with
+    # the absolute axis-angle UNWRAPPED onto one continuous branch per episode
+    # (NOT the sim |v|<=pi clamp — that shreds this data, see the converter's
+    # unwrap_abs_aa). extra_delta_transform=True re-derives chunk-relative deltas.
+    # Serving inverts via AbsoluteActions -> absolute EE targets; the nero-exp GUI
+    # auto-switches on the serve metadata delta_mode. Norm stats MUST be computed
+    # on THIS config, then patch_norm_stats_extras.py for the taxel dims.
+    # Otherwise identical to pi05_base_finetune_nudge_template_recovprompt_tac4.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_recovprompt_tac4_chunkwise",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 72-dim = LIBERO 8 + 64 taxels (no dead thumb)
+            max_token_len=384,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_recovprompt_tac4_132ep_chunkwise",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=40_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=40_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # SAME real_cube_v4 LoRA fine-tune, but starting from the LIBERO-tuned
     # pi0.5 checkpoint (./checkpoints/pi05_libero/params) instead of pi0.5-base
     # — a base-vs-libero start-checkpoint A/B (cf. docs nero_cube_base_vs_libero).
