@@ -65,7 +65,13 @@ class Policy(BasePolicy):
             self._rng = rng or jax.random.key(0)
 
     @override
-    def infer(self, obs: dict, *, noise: np.ndarray | None = None) -> dict:  # type: ignore[misc]
+    def infer(
+        self,
+        obs: dict,
+        *,
+        noise: np.ndarray | None = None,
+        extra_sample_kwargs: dict[str, np.ndarray] | None = None,
+    ) -> dict:  # type: ignore[misc]
         # Make a copy since transformations may modify the inputs in place.
         inputs = jax.tree.map(lambda x: x, obs)
         inputs = self._input_transform(inputs)
@@ -80,6 +86,17 @@ class Policy(BasePolicy):
 
         # Prepare kwargs for sample_actions
         sample_kwargs = dict(self._sample_kwargs)
+        if extra_sample_kwargs:
+            # Per-call sampling extras (e.g. RTC's prev_actions/prefix_weights,
+            # already in the model's normalized action space). Arrays get the
+            # batch dim + backend conversion, mirroring the noise path below.
+            for key, value in extra_sample_kwargs.items():
+                if isinstance(value, np.ndarray):
+                    if self._is_pytorch_model:
+                        value = torch.from_numpy(np.asarray(value)).to(self._pytorch_device)[None, ...]
+                    else:
+                        value = jnp.asarray(value)[np.newaxis, ...]
+                sample_kwargs[key] = value
         if noise is not None:
             noise = torch.from_numpy(noise).to(self._pytorch_device) if self._is_pytorch_model else jnp.asarray(noise)
 
@@ -99,7 +116,14 @@ class Policy(BasePolicy):
         else:
             outputs = jax.tree.map(lambda x: np.asarray(x[0, ...]), outputs)
 
+        # Model-space (normalized, pre-output-transform) actions, exposed for
+        # chunk-stitching wrappers (RTC) that must cache the raw chunk. Added
+        # AFTER the un-batching but BEFORE the output transforms would
+        # unnormalize/absolutize the "actions" key.
+        raw_actions = np.array(outputs["actions"])
+
         outputs = self._output_transform(outputs)
+        outputs["raw_actions"] = raw_actions
         outputs["policy_timing"] = {
             "infer_ms": model_time * 1000,
         }

@@ -232,7 +232,23 @@ class Pi0(_model.BaseModel):
         *,
         num_steps: int | at.Int[at.Array, ""] = 10,
         noise: at.Float[at.Array, "b ah ad"] | None = None,
+        prev_actions: at.Float[at.Array, "b ah ad"] | None = None,
+        prefix_weights: at.Float[at.Array, "b ah"] | None = None,
     ) -> _model.Actions:
+        """Sample an action chunk by flow integration.
+
+        ``prev_actions`` + ``prefix_weights`` enable Real-Time Chunking-style
+        guided inpainting (arXiv:2506.07339): at every denoising step the
+        velocity is pulled toward the field that reconstructs ``prev_actions``
+        (the previous chunk's still-valid tail, aligned to this chunk's time
+        axis, in the SAME normalized model action space this head samples in),
+        weighted per action index by ``prefix_weights`` in [0, 1]. Weight 1.0
+        freezes an action to the previous chunk exactly (its first ``d``
+        actions are already committed to the robot during the inference
+        delay); decaying weights softly commit the overlap region to the same
+        mode while still updating on the fresh observation. Both None (the
+        default) = standard sampling, bit-identical to before.
+        """
         observation = _model.preprocess_observation(None, observation, train=False)
         # note that we use the convention more common in diffusion literature, where t=1 is noise and t=0 is the target
         # distribution. yes, this is the opposite of the pi0 paper, and I'm sorry.
@@ -278,6 +294,16 @@ class Pi0(_model.BaseModel):
             )
             assert prefix_out is None
             v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
+
+            if prev_actions is not None and prefix_weights is not None:
+                # RTC guided inpainting. With x_t = t*noise + (1-t)*x0 (t=1 is
+                # noise here), the velocity whose Euler integration lands
+                # exactly on `prev_actions` at t=0 is (x_t - prev)/t. Blend it
+                # into the model velocity per action index. time >= 1/num_steps
+                # inside the loop; the clamp only guards float wobble.
+                v_tgt = (x_t - prev_actions) / jnp.maximum(time, 1e-3)
+                w = prefix_weights[..., None]
+                v_t = v_t + w * (v_tgt - v_t)
 
             return x_t + dt * v_t, time + dt
 

@@ -7,6 +7,7 @@ import tyro
 
 from openpi.policies import policy as _policy
 from openpi.policies import policy_config as _policy_config
+from openpi.policies import rtc_policy as _rtc_policy
 from openpi.serving import websocket_policy_server
 from openpi.training import config as _config
 
@@ -54,6 +55,19 @@ class Args:
     # Specifies how to load the policy. If not provided, the default policy for the environment will be used.
     policy: Checkpoint | Default = dataclasses.field(default_factory=Default)
 
+    # Real-Time Chunking (arXiv:2506.07339) chunk stitching for flow-head
+    # policies. Off by default; when enabled the server advertises
+    # rtc_supported in its metadata and honors the client's rtc/offset +
+    # rtc/delay observation keys (clients that never send them get plain
+    # inference — the wire protocol is unchanged).
+    rtc: _rtc_policy.RtcConfig = dataclasses.field(default_factory=_rtc_policy.RtcConfig)
+
+    # Action-space representation of the served checkpoint, advertised to
+    # clients via metadata as "delta_mode" so deployment GUIs can pick the
+    # matching consumption path (parity guard). Auto-detected from the config
+    # name when unset ("chunkwise" in the name -> chunkwise).
+    delta_mode: str | None = None
+
 
 # Default checkpoints that should be used for each environment.
 DEFAULT_CHECKPOINT: dict[EnvMode, Checkpoint] = {
@@ -98,7 +112,22 @@ def create_policy(args: Args) -> _policy.Policy:
 
 def main(args: Args) -> None:
     policy = create_policy(args)
-    policy_metadata = policy.metadata
+
+    # Advertise the checkpoint's action-space representation (parity guard for
+    # deployment GUIs). Explicit flag wins; else infer from the config name.
+    delta_mode = args.delta_mode
+    if delta_mode is None and isinstance(args.policy, Checkpoint):
+        delta_mode = "chunkwise" if "chunkwise" in args.policy.config else "stepwise"
+
+    # RTC chunk stitching (flow heads only; a client must also opt in per
+    # request). Wrap BEFORE the recorder so recordings capture what was served.
+    if args.rtc.enabled:
+        policy = _rtc_policy.RtcPolicy(policy, args.rtc)
+        logging.info("RTC chunk stitching enabled: %s", args.rtc)
+
+    policy_metadata = dict(policy.metadata)
+    if delta_mode is not None:
+        policy_metadata["delta_mode"] = delta_mode
 
     # Record the policy's behavior.
     if args.record:

@@ -2036,6 +2036,59 @@ _CONFIGS = [
             decay_lr=2e-6,
         ),
     ),
+    #
+    # CHUNKWISE action-space variant of the tac4 _aug config (2026-07 real-robot
+    # de-jitter round, docs/vla_action_space_dejitter.md in uf850-branch).
+    # Dataset local/nudge_template_aug_tac4_132ep_chunkwise = the SAME sources
+    # converted with convert_real_v3_to_openpi --delta-mode chunkwise: action[:6]
+    # stores the ABSOLUTE next-frame EE pose (state-vector convention, w>=0
+    # hemisphere); extra_delta_transform=True re-derives chunk-relative deltas
+    # (within-chunk error O(1) vs O(k) for step-wise — the smoothness/precision
+    # lever from docs/chunkwise_cube_ab_results.md). Serving inverts via
+    # AbsoluteActions -> the websocket returns ABSOLUTE EE targets; the nero-exp
+    # GUI consumes them via its chunkwise action-repr path (auto-detected from
+    # the serve metadata delta_mode). Norm: QUANTILE (auto->True — the real-data
+    # precedent; meanstd inflated real targets 2.8x on LingBot). Norm stats MUST
+    # be computed on THIS config, then patch_norm_stats_extras.py for the
+    # tactile dims, exactly like the stepwise twin. Everything else is identical
+    # to pi05_base_finetune_nudge_template_tac4_aug (the A/B twin).
+    #
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_tac4_aug_chunkwise",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 72-dim = LIBERO 8 + 64 taxels (no dead thumb)
+            max_token_len=384,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_aug_tac4_132ep_chunkwise",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=40_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=40_000,
+            decay_lr=2e-6,
+        ),
+    ),
     TrainConfig(
         name="pi05_base_finetune_nudge_template_tac4_torque_aug",
         model=pi0_config.Pi0Config(
