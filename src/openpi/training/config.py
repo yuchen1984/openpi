@@ -2311,6 +2311,60 @@ _CONFIGS = [
         ),
     ),
     #
+    # SMOOTHED-ACTIONS variant of the chunkwise real_cloth config (2026-07-22,
+    # uf850-branch docs/gemini_vla_jitter_assessment.md) — the MOST informative
+    # arm of the data-side min-jerk A/B: cloth is the one task where going
+    # chunkwise made the commanded-path wiggle WORSE (reversals 9.7 -> 15.9,
+    # worse in 6/6 episodes), so this tests whether de-tremoring the
+    # supervision recovers it. Dataset local/real_cloth_v1v2_74ep_chunkwise_smoothed
+    # = the same 74 curated episodes with --smooth-actions savgol (w=5, k=3):
+    # action targets from a Savitzky-Golay-smoothed EE pose trajectory (applied
+    # AFTER the axis-angle unwrap, so it never smears across a branch flip),
+    # states left RAW for deployment parity. 8-dim state (no extras), 30k to
+    # match the twin, same dim-6 suction loss weight.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_real_cloth_v1v2_chunkwise_smoothed",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # chunkwise abs pos, abs ori
+                2.0,                            # gripper_cmd (dim 6) — suction on/off
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/real_cloth_v1v2_74ep_chunkwise_smoothed",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # CHUNKWISE action-space variant of the recovprompt tac4 config (2026-07-21
     # de-jitter round, uf850 docs/vla_action_space_dejitter.md). Queued behind
     # pi05_base_finetune_nudge_template_tac4_aug_chunkwise so the 2x2 is complete:
