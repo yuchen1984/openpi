@@ -2089,6 +2089,55 @@ _CONFIGS = [
             decay_lr=2e-6,
         ),
     ),
+    #
+    # SMOOTHED-ACTIONS variant of the chunkwise tac4 _aug config (2026-07-22,
+    # uf850-branch docs/gemini_vla_jitter_assessment.md). Dataset
+    # local/nudge_template_aug_tac4_132ep_chunkwise_smoothed = the SAME sources
+    # converted with --delta-mode chunkwise --smooth-actions savgol (w=5, k=3):
+    # the action targets are derived from a Savitzky-Golay-smoothed copy of the
+    # EE pose trajectory (BC stops memorizing teleop tremor — the data-side
+    # jerk lever; the chunkwise A/B showed the residual wiggle is in what the
+    # policy COMMANDS, i.e. learned), while the state channel stays raw
+    # (deployment parity). Single-variable A/B vs
+    # pi05_base_finetune_nudge_template_tac4_aug_chunkwise. Same norm rules:
+    # quantile + patch_norm_stats_extras.py for the tactile dims.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_tac4_aug_chunkwise_smoothed",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 72-dim = LIBERO 8 + 64 taxels (no dead thumb)
+            max_token_len=384,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_aug_tac4_132ep_chunkwise_smoothed",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=40_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=40_000,
+            decay_lr=2e-6,
+        ),
+    ),
     TrainConfig(
         name="pi05_base_finetune_nudge_template_tac4_torque_aug",
         model=pi0_config.Pi0Config(
