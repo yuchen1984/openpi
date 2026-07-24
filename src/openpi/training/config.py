@@ -2138,6 +2138,93 @@ _CONFIGS = [
             decay_lr=2e-6,
         ),
     ),
+    #
+    # TOP-DOWN GLOBAL VIEW round (2026-07-23). Dataset nudge_template_up_v1 (55
+    # eps) re-records the template-nudge task with the GLOBAL camera mounted
+    # LOOKING STRAIGHT DOWN (top-down) instead of the earlier grazing/side view.
+    # Mechanically the pipeline is identical — the v3 source still exports
+    # `image`+`wrist_image` (256x256) and the same 8-dim LIBERO state; only the
+    # CONTENT of the base image changes — so these clone the tac4 stepwise/
+    # chunkwise configs verbatim, pointed at the new single-source datasets:
+    #   stepwise  local/nudge_template_up_v1_tac4_55ep            (extra_delta_transform=False)
+    #   chunkwise local/nudge_template_up_v1_tac4_55ep_chunkwise  (extra_delta_transform=True)
+    # Both: --gripper-mode open --index-tactile fingers4 (72-dim state = LIBERO 8
+    # + 64 taxels, dead thumb dropped), standard task prompt, 30k steps (single
+    # 55-ep source — no aug bump). Norm: QUANTILE (auto) + patch_norm_stats_extras
+    # for the pre-scaled taxel dims, exactly like every other tac4 config.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_up_tac4",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 72-dim = LIBERO 8 + 64 taxels (no dead thumb)
+            max_token_len=384,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_up_v1_tac4_55ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_up_tac4_chunkwise",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 72-dim = LIBERO 8 + 64 taxels (no dead thumb)
+            max_token_len=384,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_up_v1_tac4_55ep_chunkwise",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
     TrainConfig(
         name="pi05_base_finetune_nudge_template_tac4_torque_aug",
         model=pi0_config.Pi0Config(
