@@ -2225,6 +2225,176 @@ _CONFIGS = [
             decay_lr=2e-6,
         ),
     ),
+    #
+    # nudge_CLOTH top-down global view round (2026-07-27). Dataset
+    # nudge_cloth_up_v1 — "nudge and align the blue cloth piece on the yellow
+    # template" re-recorded with the GLOBAL camera looking STRAIGHT DOWN, the
+    # same optical change as the nudge_template_up round above.
+    #   stepwise  local/nudge_cloth_up_v1_59ep            (extra_delta_transform=False)
+    #   chunkwise local/nudge_cloth_up_v1_59ep_chunkwise  (extra_delta_transform=True)
+    # Built by logs/_nudge_cloth_up_chain.sh with --gripper-mode open (the hand
+    # is constant-open in this pushing task — verified byte-exact over all
+    # 34,732 frames), NO --canonicalize-ori-deltas (deltas are clean, max
+    # 0.056 rad), --trim-frozen-tail (5 episodes stalled the WRIST camera and
+    # re-emitted a static frame for 227-575 frames while the arm kept moving)
+    # => 59 episodes (0..58).
+    #
+    # The recording's three footer-less parquets (an interrupted export) were
+    # REBUILT by scripts/recover_parquet_footer.py, which walks the page headers
+    # and reconstructs the index; originals kept as *.corrupt-orig. Verified
+    # against the independent frames.npz: 59/59 episode lengths match and
+    # state[:7] is byte-exact vs the recorded joints. That recovery is what
+    # makes the _tac1 (24-dim) pair trainable — observation.tactile lives only
+    # in the top-level parquet.
+    #
+    # Read _tac1 as the EXPERIMENT and the 8-dim pair as its CONTROL: only 9 of
+    # 16 index taxels ever fire (3 with real range), and
+    # docs/nudge_cloth_results.md found tactile == proprio on the v5 recording
+    # because the nudge is open-loop w.r.t. contact.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_nudge_cloth_up",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 8-dim stock LIBERO proprio
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_cloth_up_v1_59ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    TrainConfig(
+        name="pi05_base_finetune_nudge_cloth_up_chunkwise",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 8-dim stock LIBERO proprio
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_cloth_up_v1_59ep_chunkwise",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    # --- 24-dim (8 proprio + 16 index taxels). Needs a RE-RECORD; see above. ---
+    TrainConfig(
+        name="pi05_base_finetune_nudge_cloth_up_tac1",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 24-dim = LIBERO 8 + 16 index taxels
+            max_token_len=384,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_cloth_up_v1_tac1_59ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    TrainConfig(
+        name="pi05_base_finetune_nudge_cloth_up_tac1_chunkwise",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 24-dim = LIBERO 8 + 16 index taxels
+            max_token_len=384,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_cloth_up_v1_tac1_59ep_chunkwise",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
     TrainConfig(
         name="pi05_base_finetune_nudge_template_tac4_torque_aug",
         model=pi0_config.Pi0Config(
