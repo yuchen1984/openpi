@@ -2226,6 +2226,178 @@ _CONFIGS = [
         ),
     ),
     #
+    # J3+J5 LOCKED round (2026-07-28). Datasets nudge_template_j5_up_{v0,v1,v2}
+    # re-record the top-down template nudge with J3 and J5 mechanically LOCKED
+    # (measured per-joint std j3=0.0006 rad, j5=0.0003 rad, vs 0.174/0.208 in
+    # nudge_template_up_v1) — the hypothesis being that the on-robot shake is
+    # WRIST orientation content the heavy proximal joints low-pass, so removing
+    # the wrist DOF at record time should remove it from the demonstrations too
+    # (docs/vla_jitter_nullspace_findings.md).
+    #
+    # v0/v1 start from a normal pose; v2 starts from a TRAP and keeps its own
+    # distinct prompt ("move the template out of the stuck position and realign
+    # against the wedge"), so the trap recovery stays a separate
+    # language-conditioned mode — the converter's per---src `--prompt ""` keeps
+    # each source's recorded task string.
+    #
+    # Two rounds, four configs, all tac4 (72-dim state = LIBERO 8 + 64 taxels):
+    #   R1  j5_up v0+v1+v2                     91 eps /  27,037 frames, 30k
+    #   R2  R1 + nudge_template_up_v1 (aug)   146 eps /  50,049 frames, 50k
+    # R2 deliberately mixes j5-LOCKED with j5-FREE demos under the same prompt,
+    # so R1 is the comparison arm and must be kept.
+    #
+    # Both rounds trim each episode's trailing dead run via
+    # scan_frozen_frames.py + --trim-frozen-tail: j5_up_v1 alone loses 16 % of
+    # its frames to a stalled wrist camera (13 eps) and a parked arm (28 eps,
+    # incl. ep56 idle for 1116 of 1356 frames), and eps 12/16 fall below
+    # --trim-min-keep and are dropped outright.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_j5_up_tac4",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 72-dim = LIBERO 8 + 64 taxels (no dead thumb)
+            max_token_len=384,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_j5_up_tac4_91ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_j5_up_tac4_chunkwise",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 72-dim = LIBERO 8 + 64 taxels (no dead thumb)
+            max_token_len=384,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_j5_up_tac4_91ep_chunkwise",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    # --- R2: augmented with the previous (j5-FREE) top-down round, 50k steps ---
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_j5_up_aug_tac4",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 72-dim = LIBERO 8 + 64 taxels (no dead thumb)
+            max_token_len=384,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_j5_up_aug_tac4_146ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=50_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=50_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    TrainConfig(
+        name="pi05_base_finetune_nudge_template_j5_up_aug_tac4_chunkwise",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,      # 72-dim = LIBERO 8 + 64 taxels (no dead thumb)
+            max_token_len=384,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/nudge_template_j5_up_aug_tac4_146ep_chunkwise",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=50_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=50_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # nudge_CLOTH top-down global view round (2026-07-27). Dataset
     # nudge_cloth_up_v1 — "nudge and align the blue cloth piece on the yellow
     # template" re-recorded with the GLOBAL camera looking STRAIGHT DOWN, the
