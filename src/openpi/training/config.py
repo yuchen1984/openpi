@@ -1792,8 +1792,8 @@ _CONFIGS = [
     # follower mirrored: continuous openness s = width/80 in state[6:8] and
     # action[6]. DEPLOY: tick the GUI's continuous-gripper option (default
     # gripper_threshold 0.0 is the +-1 convention and would NEVER close on s).
-    # Proprio recipe (discrete_state_input=True) as nudge_cloth; 30k schedule
-    # as real_cloth_v1v2 (similar data size).
+    # Proprio recipe (discrete_state_input=True) as nudge_cloth; 24k schedule
+    # (smooth cosine to 24k).
     #
     TrainConfig(
         name="pi05_base_finetune_sleeve_lift_v1",
@@ -1825,14 +1825,14 @@ _CONFIGS = [
             action_expert_variant="gemma_300m_lora",
         ).get_freeze_filter(),
         ema_decay=None,
-        num_train_steps=30_000,
+        num_train_steps=24_000,
         batch_size=2,
         save_interval=2_000,
         keep_period=4_000,
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=200,
             peak_lr=2e-5,
-            decay_steps=30_000,
+            decay_steps=24_000,
             decay_lr=2e-6,
         ),
     ),
@@ -1846,7 +1846,7 @@ _CONFIGS = [
     #     --gripper-mode leader --canonicalize-ori-deltas
     #     --prompt "pick up and lift the yellow sleeve"
     #     --repo-id local/sleeve_lift_yellow_v0_68ep
-    # DEPLOY: continuous-gripper option ON (see sleeve_lift_v1).
+    # 24k schedule. DEPLOY: continuous-gripper option ON (see sleeve_lift_v1).
     #
     TrainConfig(
         name="pi05_base_finetune_sleeve_lift_yellow_v0",
@@ -1878,14 +1878,14 @@ _CONFIGS = [
             action_expert_variant="gemma_300m_lora",
         ).get_freeze_filter(),
         ema_decay=None,
-        num_train_steps=30_000,
+        num_train_steps=24_000,
         batch_size=2,
         save_interval=2_000,
         keep_period=4_000,
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=200,
             peak_lr=2e-5,
-            decay_steps=30_000,
+            decay_steps=24_000,
             decay_lr=2e-6,
         ),
     ),
