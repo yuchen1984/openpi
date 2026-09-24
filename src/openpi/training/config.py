@@ -1792,15 +1792,15 @@ _CONFIGS = [
     # follower mirrored: continuous openness s = width/80 in state[6:8] and
     # action[6]. DEPLOY: tick the GUI's continuous-gripper option (default
     # gripper_threshold 0.0 is the +-1 convention and would NEVER close on s).
-    # Proprio recipe (discrete_state_input=True) as nudge_cloth; 24k schedule
-    # (smooth cosine to 24k).
+    # Recipe = real_cube_v4 (gripper EE task): image-only (discrete_state_input
+    # =False), gripper dim-6 loss weight 2.0; 24k schedule, permanent ckpt every 4k.
     #
     TrainConfig(
         name="pi05_base_finetune_sleeve_lift_v1",
         model=pi0_config.Pi0Config(
             pi05=True,
             action_horizon=10,
-            discrete_state_input=True,
+            discrete_state_input=False,          # image-only, as real_cube_v4 (gripper EE task)
             paligemma_variant="gemma_2b_lora",
             action_expert_variant="gemma_300m_lora",
             action_dim_loss_weights=(
@@ -1814,6 +1814,54 @@ _CONFIGS = [
             repo_id="local/sleeve_lift_v1_66ep",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # CHUNKWISE twin of pi05_base_finetune_sleeve_lift_v1: same episodes + gripper encoding, converted with
+    # --delta-mode chunkwise (uf850-branch vla-enc converter) -> local/sleeve_lift_v1_66ep_chunkwise:
+    # action[:6] = ABSOLUTE next-frame EE pose, axis-angle unwrapped per episode
+    # (subsumes --canonicalize-ori-deltas); extra_delta_transform=True re-derives
+    # chunk-relative deltas. Deploy with the GUI's chunkwise consumption path.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_sleeve_lift_v1_chunkwise",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,          # image-only, as real_cube_v4 (gripper EE task)
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # chunkwise abs pos, abs ori
+                2.0,                            # gripper_cmd (dim 6) — continuous jaw openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/sleeve_lift_v1_66ep_chunkwise",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
             action_dim=8,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader(
@@ -1853,7 +1901,7 @@ _CONFIGS = [
         model=pi0_config.Pi0Config(
             pi05=True,
             action_horizon=10,
-            discrete_state_input=True,
+            discrete_state_input=False,          # image-only, as real_cube_v4 (gripper EE task)
             paligemma_variant="gemma_2b_lora",
             action_expert_variant="gemma_300m_lora",
             action_dim_loss_weights=(
@@ -1867,6 +1915,54 @@ _CONFIGS = [
             repo_id="local/sleeve_lift_yellow_v0_68ep",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # CHUNKWISE twin of pi05_base_finetune_sleeve_lift_yellow_v0: same episodes + gripper encoding, converted with
+    # --delta-mode chunkwise (uf850-branch vla-enc converter) -> local/sleeve_lift_yellow_v0_68ep_chunkwise:
+    # action[:6] = ABSOLUTE next-frame EE pose, axis-angle unwrapped per episode
+    # (subsumes --canonicalize-ori-deltas); extra_delta_transform=True re-derives
+    # chunk-relative deltas. Deploy with the GUI's chunkwise consumption path.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_sleeve_lift_yellow_v0_chunkwise",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,          # image-only, as real_cube_v4 (gripper EE task)
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # chunkwise abs pos, abs ori
+                2.0,                            # gripper_cmd (dim 6) — continuous jaw openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/sleeve_lift_yellow_v0_68ep_chunkwise",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
             action_dim=8,
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader(
