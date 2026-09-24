@@ -1779,6 +1779,63 @@ _CONFIGS = [
             decay_lr=2e-6,
         ),
     ),
+    #
+    # Real NERO SLEEVE pick-and-lift (AGX jaw gripper, leader-follower teleop),
+    # pi0.5-BASE LoRA. nero-exp-lf-haptic sleeve_lift_v1: 67 recorded, ep5
+    # excluded (never grasped) -> 66 eps / ~16.5k frames @10Hz, via
+    #   scripts/convert_real_v3_to_openpi.py
+    #     --src sleeve_lift_v1/uf850/libero --exclude 5 --gripper-mode leader
+    #     --canonicalize-ori-deltas --repo-id local/sleeve_lift_v1_66ep
+    # The recorded follower gripper dim is DEAD (the "Gripper = suction relay"
+    # fold was on with a relay that never fired => constant open / 80 mm), so
+    # the grasp comes from observation.leader_gripper_width_mm, which the
+    # follower mirrored: continuous openness s = width/80 in state[6:8] and
+    # action[6]. DEPLOY: tick the GUI's continuous-gripper option (default
+    # gripper_threshold 0.0 is the +-1 convention and would NEVER close on s).
+    # Proprio recipe (discrete_state_input=True) as nudge_cloth; 30k schedule
+    # as real_cloth_v1v2 (similar data size).
+    #
+    TrainConfig(
+        name="pi05_base_finetune_sleeve_lift_v1",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6) — continuous jaw openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/sleeve_lift_v1_66ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
     TrainConfig(
         name="pi05_base_finetune_nudge_cloth_tactile",
         model=pi0_config.Pi0Config(
