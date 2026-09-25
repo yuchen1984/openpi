@@ -2097,6 +2097,55 @@ _CONFIGS = [
         ),
     ),
     #
+    # J3-LOCKED-ONLY variant of the joint sleeve set (user, 2026-09-25): every
+    # episode was recorded with J3 locked. local/sleeve_lift_ybp_locked_118ep =
+    # yellow_v0 all 68 (eps 0-67, J3 -0.1046) + blue_v0 all 25 (68-92, -0.0066)
+    # + pink_v0 ONLY ep23-25 (93-95; ep0-21 unlocked, ep22 failed) + pink_v1 all
+    # 22 (96-117, -0.0062), 25,145 frames, own prompt per colour. THIS is the one
+    # trained after cloth_pick (_sleeve_ybp_chain.sh). Deploy pin per colour.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_sleeve_lift_ybp_locked",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,          # image-only, as real_cube_v4 (gripper EE task)
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6) — continuous jaw openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/sleeve_lift_ybp_locked_118ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # CHUNKWISE twin of pi05_base_finetune_sleeve_lift_yellow_v0: same episodes + gripper encoding, converted with
     # --delta-mode chunkwise (uf850-branch vla-enc converter) -> local/sleeve_lift_yellow_v0_68ep_chunkwise:
     # action[:6] = ABSOLUTE next-frame EE pose, axis-angle unwrapped per episode
