@@ -2041,6 +2041,62 @@ _CONFIGS = [
         ),
     ),
     #
+    # JOINT yellow + blue + pink sleeve pick-and-lift (mid-air grasp from a hanging
+    # jacket), pi0.5-BASE LoRA. local/sleeve_lift_ybp_118ep = sleeve_lift_yellow_v0
+    # (68 eps, eps 0-67) + sleeve_lift_blue_v0 (25, eps 68-92) + sleeve_lift_pink_v0
+    # (25, eps 93-117; ep22 dropped = failed grasp), 25,311 frames, via
+    #   scripts/convert_real_v3_to_openpi.py (per-source --prompt)
+    #     --src yellow --prompt "pick up and lift the yellow sleeve"
+    #     --src blue --prompt "" --src pink --exclude 22 --prompt ""
+    #     --gripper-mode leader (x3) --canonicalize-ori-deltas
+    # Each colour keeps its own prompt ("pick up and lift the <colour> sleeve").
+    # J3: yellow locked at -0.1046, blue locked at -0.0066, pink ep0-21 UNLOCKED
+    # (kept by the user's choice) + ep23-25 locked at -0.0066. DEPLOY: pin J3 per
+    # colour ("Lock J3 (sleeve)" for yellow, "Lock J3 (blue/pink)" for blue/pink),
+    # continuous gripper ON. Same recipe as the single-colour sleeve runs.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_sleeve_lift_ybp",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,          # image-only, as real_cube_v4 (gripper EE task)
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6) — continuous jaw openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/sleeve_lift_ybp_118ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # CHUNKWISE twin of pi05_base_finetune_sleeve_lift_yellow_v0: same episodes + gripper encoding, converted with
     # --delta-mode chunkwise (uf850-branch vla-enc converter) -> local/sleeve_lift_yellow_v0_68ep_chunkwise:
     # action[:6] = ABSOLUTE next-frame EE pose, axis-angle unwrapped per episode
