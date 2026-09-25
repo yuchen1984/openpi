@@ -1837,6 +1837,63 @@ _CONFIGS = [
         ),
     ),
     #
+    # Real NERO CLOTH pick-and-place onto a MUG TREE (AGX jaw, leader-follower),
+    # pi0.5-BASE LoRA. nero-exp-lf-haptic cloth_pick_v1 (2026-09-25): all 53 eps
+    # kept (every one ends with the cloth draped on the tree; ep9 = a fall +
+    # re-pick recovery, ep36/39 re-drape on the tree) / 20,378 frames, via
+    #   scripts/convert_real_v3_to_openpi.py --src cloth_pick_v1/uf850/libero
+    #     --gripper-mode leader --canonicalize-ori-deltas --repo-id local/cloth_pick_v1_53ep
+    # Prompt as recorded: "pick up the yellow cloth from the table and place it
+    # on top of the mug tree". The follower gripper dim is DEAD (constant 0 /
+    # 0 mm: no follower jaw status recorded), so the grasp comes from
+    # observation.leader_gripper_width_mm (continuous openness s = mm/80; close
+    # then RELEASE at the tree). J3 was locked in two sessions (ep0-14 -0.0590,
+    # ep15-52 -0.0255 rad): deploy pin = the dominant -0.0255. Same recipe as
+    # sleeve_lift (real_cube_v4: image-only, 24k, keep every 4k).
+    # DEPLOY: continuous-gripper option ON.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_cloth_pick_v1",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,          # image-only, as real_cube_v4 (gripper EE task)
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6) — continuous jaw openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/cloth_pick_v1_53ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # CHUNKWISE twin of pi05_base_finetune_sleeve_lift_v1: same episodes + gripper encoding, converted with
     # --delta-mode chunkwise (uf850-branch vla-enc converter) -> local/sleeve_lift_v1_66ep_chunkwise:
     # action[:6] = ABSOLUTE next-frame EE pose, axis-angle unwrapped per episode
