@@ -2146,6 +2146,54 @@ _CONFIGS = [
         ),
     ),
     #
+    # CHUNKWISE twin of pi05_base_finetune_sleeve_lift_ybp_locked (user 2026-09-26),
+    # **30k steps** (the stepwise twin ran 24k). Same J3-locked episodes and per-colour
+    # prompts, converted with the vla-enc converter --delta-mode chunkwise ->
+    # local/sleeve_lift_ybp_locked_118ep_chunkwise; extra_delta_transform=True.
+    # Permanent checkpoints every 4k (4k..28k) + the final 29999.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_sleeve_lift_ybp_locked_chunkwise",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,          # image-only, as real_cube_v4 (gripper EE task)
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # chunkwise abs pos, abs ori
+                2.0,                            # gripper_cmd (dim 6) — continuous jaw openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/sleeve_lift_ybp_locked_118ep_chunkwise",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # PROMPT-AUGMENTED twin of pi05_base_finetune_sleeve_lift_ybp_locked (user idea
     # 2026-09-25): local/sleeve_lift_ybp_locked_aug_236ep holds every J3-locked
     # episode TWICE, once with its colour prompt and once with the colour-agnostic
