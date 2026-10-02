@@ -2194,14 +2194,17 @@ _CONFIGS = [
         ),
     ),
     #
-    # lift-slv-wb (user 2026-10-02): a hanging SHIRT, grasp the LEFT or RIGHT cuff,
-    # BLUE or PINK shirt, lift 18-37 cm. local/lift_slv_wb_102ep = left-blue v1 24
-    # (eps 0-23) + left-blue v0 5 (24-28; uf850 export REBUILT offline from joints
-    # + videos, nero-exp-lf-haptic scripts/rebuild_uf850_libero.py) + right-blue
-    # 26 (29-54; ep4/15/24 frozen wrist tails trimmed) + left-pink 24 (55-78) +
-    # right-pink 23 (79-101), 24,878 frames, own prompt per side x colour. All
-    # J3-locked (-0.24..-0.28 deg). Follower gripper dead (constant 80 mm OPEN) ->
-    # leader width (--gripper-mode leader). Same recipe as the joint sleeve model.
+    # lift-slv-wb (user 2026-10-02): a hanging SHIRT/JACKET, grasp the LEFT or RIGHT
+    # cuff, BLUE / PINK / YELLOW, lift 18-41 cm. local/lift_slv_wb_150ep =
+    # left-blue v1 24 (eps 0-23) + left-blue v0 5 (24-28; uf850 export REBUILT
+    # offline from joints + videos, nero-exp-lf-haptic scripts/rebuild_uf850_libero.py)
+    # + right-blue 26 (29-54; ep4/15/24 frozen wrist tails trimmed) + left-pink 24
+    # (55-78) + right-pink 23 (79-101) + left-yellow 25 (102-126) + right-yellow 23
+    # (127-149; ep5 camera knocked + ep18 wrist frozen EXCLUDED, ep13 3-fr tail
+    # trimmed), 36,787 frames, own prompt per side x colour. All J3-locked
+    # (-0.24..-0.28 deg). Follower gripper dead (constant 80 mm OPEN; right-yellow
+    # constant 0 = CLOSED) -> leader width (--gripper-mode leader). Same recipe as
+    # the joint sleeve model. (local/lift_slv_wb_102ep = the blue/pink-only subset.)
     #
     TrainConfig(
         name="pi05_base_finetune_lift_slv_wb",
@@ -2219,7 +2222,7 @@ _CONFIGS = [
             ),
         ),
         data=LeRobotLiberoDataConfig(
-            repo_id="local/lift_slv_wb_102ep",
+            repo_id="local/lift_slv_wb_150ep",
             base_config=DataConfig(prompt_from_task=True),
             extra_delta_transform=False,
             action_dim=8,
