@@ -2204,7 +2204,8 @@ _CONFIGS = [
     # trimmed), 36,787 frames, own prompt per side x colour. All J3-locked
     # (-0.24..-0.28 deg). Follower gripper dead (constant 80 mm OPEN; right-yellow
     # constant 0 = CLOSED) -> leader width (--gripper-mode leader). Same recipe as
-    # the joint sleeve model. (local/lift_slv_wb_102ep = the blue/pink-only subset.)
+    # the joint sleeve model, **30k steps** (user). (local/lift_slv_wb_102ep = the
+    # blue/pink-only subset.)
     #
     TrainConfig(
         name="pi05_base_finetune_lift_slv_wb",
@@ -2236,14 +2237,61 @@ _CONFIGS = [
             action_expert_variant="gemma_300m_lora",
         ).get_freeze_filter(),
         ema_decay=None,
-        num_train_steps=24_000,
+        num_train_steps=30_000,
         batch_size=2,
         save_interval=2_000,
         keep_period=4_000,
         lr_schedule=_optimizer.CosineDecaySchedule(
             warmup_steps=200,
             peak_lr=2e-5,
-            decay_steps=24_000,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
+    # CHUNKWISE twin of pi05_base_finetune_lift_slv_wb (user 2026-10-02), 30k steps:
+    # the same 150 episodes / exclusions / trims / prompts, converted with the
+    # vla-enc converter --delta-mode chunkwise -> local/lift_slv_wb_150ep_chunkwise;
+    # extra_delta_transform=True.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_lift_slv_wb_chunkwise",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,          # image-only, as real_cube_v4 (gripper EE task)
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6) — continuous jaw openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/lift_slv_wb_150ep_chunkwise",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
             decay_lr=2e-6,
         ),
     ),
