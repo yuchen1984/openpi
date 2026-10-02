@@ -2194,6 +2194,57 @@ _CONFIGS = [
         ),
     ),
     #
+    # lift-slv-wb (user 2026-10-02): a hanging SHIRT, grasp the LEFT or RIGHT cuff,
+    # BLUE or PINK shirt, lift 18-37 cm. local/lift_slv_wb_102ep = left-blue v1 24
+    # (eps 0-23) + left-blue v0 5 (24-28; uf850 export REBUILT offline from joints
+    # + videos, nero-exp-lf-haptic scripts/rebuild_uf850_libero.py) + right-blue
+    # 26 (29-54; ep4/15/24 frozen wrist tails trimmed) + left-pink 24 (55-78) +
+    # right-pink 23 (79-101), 24,878 frames, own prompt per side x colour. All
+    # J3-locked (-0.24..-0.28 deg). Follower gripper dead (constant 80 mm OPEN) ->
+    # leader width (--gripper-mode leader). Same recipe as the joint sleeve model.
+    #
+    TrainConfig(
+        name="pi05_base_finetune_lift_slv_wb",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,          # image-only, as real_cube_v4 (gripper EE task)
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6) — continuous jaw openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/lift_slv_wb_102ep",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=24_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=24_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # PROMPT-AUGMENTED twin of pi05_base_finetune_sleeve_lift_ybp_locked (user idea
     # 2026-09-25): local/sleeve_lift_ybp_locked_aug_236ep holds every J3-locked
     # episode TWICE, once with its colour prompt and once with the colour-agnostic
