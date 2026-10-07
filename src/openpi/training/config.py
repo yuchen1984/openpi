@@ -300,6 +300,10 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
     # Number of action dimensions in the dataset.  Standard LIBERO = 7,
     # sim fine-tune with done signal = 8.
     action_dim: int = 7
+    # JEPA auxiliary target sidecar (experiments/jepa_vla): when set, training items get
+    # Observation.jepa_target = standardized V-JEPA latent of frame index+jepa_k. Training-only.
+    jepa_sidecar: str | None = None
+    jepa_k: int = 10
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
@@ -311,17 +315,18 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
         # For your own dataset, first figure out what keys your environment passes to the policy server
         # and then modify the mappings below so your dataset's keys get matched to those target keys.
         # The repack transform simply remaps key names here.
-        repack_inputs = [
-            _transforms.RepackTransform(
-                {
-                    "observation/image": "image",
-                    "observation/wrist_image": "wrist_image",
-                    "observation/state": "state",
-                    "actions": "actions",
-                    "prompt": "prompt",
-                }
-            )
-        ]
+        repack_map = {
+            "observation/image": "image",
+            "observation/wrist_image": "wrist_image",
+            "observation/state": "state",
+            "actions": "actions",
+            "prompt": "prompt",
+        }
+        repack_inputs = []
+        if self.jepa_sidecar is not None:
+            repack_inputs.append(_transforms.AttachJepaTarget(self.jepa_sidecar, k=self.jepa_k))
+            repack_map["jepa_target"] = "jepa_target"
+        repack_inputs.append(_transforms.RepackTransform(repack_map))
         # Truncate actions to action_dim so that e.g. a 7-dim config training
         # on an 8-dim dataset (with done signal) only sees the first 7 dims.
         if self.action_dim < 8:
@@ -4603,6 +4608,58 @@ _CONFIGS = [
 
 if len({config.name for config in _CONFIGS}) != len(_CONFIGS):
     raise ValueError("Config names must be unique.")
+# ---------------------------------------------------------------------------------------------------------
+# JEPA + VLA experiment (uf850-experiment experiments/jepa_vla, 2026-10-07). Paired A/B on HELD-OUT real
+# episodes: A0 = the stock real-task recipe on the TRAIN split only; A1 = identical + the VLA-JEPA-style
+# auxiliary loss (predict the frozen V-JEPA 2 ViT-L latent of frame t+10 from the VLM image tokens + the GT
+# action chunk, weight 0.1); A1c = same head, target = the CURRENT frame (extra visual supervision without
+# prediction). Same seed => same data order, flow noise and base-param init across arms (the JEPA head is
+# created last). Inference is unchanged (the head is training-only), so A1 serves exactly like A0.
+# ---------------------------------------------------------------------------------------------------------
+_JEPA_LATENTS = "/home/yu/dev/uf850-experiment/experiments/jepa_vla/latents"
+
+
+def _jepa_real_cfg(name: str, repo_id: str, steps: int, *, jepa_k: int | None = None, weight: float = 0.1):
+    return TrainConfig(
+        name=name,
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,          # image-only, as the stock lift_slv_wb / cloth_pick recipe
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(1.0,) * 6 + (2.0, 1.0) + (1.0,) * 24,
+            jepa_loss_weight=0.0 if jepa_k is None else weight,
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id=repo_id,
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            action_dim=8,
+            jepa_sidecar=None if jepa_k is None else f"{_JEPA_LATENTS}/{repo_id.replace('/', '__')}",
+            jepa_k=10 if jepa_k is None else jepa_k,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("./checkpoints/pi05_base/params"),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True, paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=steps,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=200, peak_lr=2e-5, decay_steps=steps, decay_lr=2e-6),
+    )
+
+
+_CONFIGS += [
+    _jepa_real_cfg("pi05_base_finetune_lift_slv_wb_jepa_base", "local/lift_slv_wb_jepa_train94", 30_000),
+    _jepa_real_cfg("pi05_base_finetune_lift_slv_wb_jepa_aux", "local/lift_slv_wb_jepa_train94", 30_000, jepa_k=10),
+    _jepa_real_cfg("pi05_base_finetune_lift_slv_wb_jepa_cur", "local/lift_slv_wb_jepa_train94", 30_000, jepa_k=0),
+    _jepa_real_cfg("pi05_base_finetune_cloth_pick_v1_jepa_base", "local/cloth_pick_v1_jepa_train44", 24_000),
+    _jepa_real_cfg("pi05_base_finetune_cloth_pick_v1_jepa_aux", "local/cloth_pick_v1_jepa_train44", 24_000, jepa_k=10),
+]
+
 _CONFIGS_DICT = {config.name: config for config in _CONFIGS}
 
 

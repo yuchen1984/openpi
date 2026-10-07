@@ -40,6 +40,15 @@ class Pi0Config(_model.BaseModelConfig):
     # decisively instead of preferring the +1 (open) majority class.
     action_dim_loss_weights: tuple[float, ...] | None = None
 
+    # JEPA auxiliary loss (VLA-JEPA style, arXiv 2602.10098): a small action-conditioned predictor head reads the
+    # VLM's per-camera image-token outputs + the ground-truth action chunk and regresses the frozen V-JEPA 2 latent
+    # of a future frame (supplied as Observation.jepa_target by transforms.AttachJepaTarget). Training-only: the
+    # head is never used by sample_actions. 0.0 = disabled = the stock model (no extra params).
+    jepa_loss_weight: float = 0.0
+    jepa_target_tokens: int = 34   # 2 cameras x (4x4 grid + mean)
+    jepa_target_dim: int = 1024    # V-JEPA 2 ViT-L width
+    jepa_hidden: int = 1024
+
     def __post_init__(self):
         if self.max_token_len is None:
             object.__setattr__(self, "max_token_len", 200 if self.pi05 else 48)

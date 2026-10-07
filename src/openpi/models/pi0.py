@@ -100,6 +100,18 @@ class Pi0(_model.BaseModel):
             self.action_time_mlp_out = nnx.Linear(action_expert_config.width, action_expert_config.width, rngs=rngs)
         self.action_out_proj = nnx.Linear(action_expert_config.width, config.action_dim, rngs=rngs)
 
+        # JEPA auxiliary predictor head (created LAST so every pre-existing param keeps its init RNG stream).
+        self.jepa_loss_weight = float(config.jepa_loss_weight)
+        if self.jepa_loss_weight > 0:
+            q = 256
+            self.jepa_act_proj = nnx.Linear(config.action_dim * config.action_horizon, q, rngs=rngs)
+            self.jepa_queries = nnx.Param(
+                jax.random.normal(rngs.params(), (config.jepa_target_tokens, q), dtype=jnp.float32) * 0.02
+            )
+            self.jepa_in = nnx.Linear(2 * paligemma_config.width + 2 * q, config.jepa_hidden, rngs=rngs)
+            self.jepa_mid = nnx.Linear(config.jepa_hidden, config.jepa_hidden, rngs=rngs)
+            self.jepa_out = nnx.Linear(config.jepa_hidden, config.jepa_target_dim, rngs=rngs)
+
         # This attribute gets automatically set by model.train() and model.eval().
         self.deterministic = True
 
@@ -190,6 +202,33 @@ class Pi0(_model.BaseModel):
     def compute_loss(
         self, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions, *, train: bool = False
     ) -> at.Float[at.Array, "*b ah"]:
+        loss, _ = self.compute_loss_and_aux(rng, observation, actions, train=train)
+        return loss
+
+    def _jepa_predict(self, prefix_out, n_images: int, prompt_len: int, actions):
+        """Action-conditioned future-latent prediction from the VLM prefix outputs -> [b, tokens, dim]."""
+        s = (prefix_out.shape[1] - prompt_len) // n_images        # image tokens per camera (256)
+        x = prefix_out.astype(jnp.float32)
+        base = jnp.mean(x[:, 0:s], axis=1)                          # base_0_rgb
+        wrist = jnp.mean(x[:, s : 2 * s], axis=1)                   # left_wrist_0_rgb
+        act = self.jepa_act_proj(actions.reshape(actions.shape[0], -1).astype(jnp.float32))
+        cond = jnp.concatenate([base, wrist, act], axis=-1)         # [b, 2W + q]
+        n_tok = self.jepa_queries.value.shape[0]
+        h = jnp.concatenate(
+            [
+                jnp.broadcast_to(cond[:, None, :], (cond.shape[0], n_tok, cond.shape[-1])),
+                jnp.broadcast_to(self.jepa_queries.value[None], (cond.shape[0], *self.jepa_queries.value.shape)),
+            ],
+            axis=-1,
+        )
+        h = nnx.gelu(self.jepa_in(h))
+        h = nnx.gelu(self.jepa_mid(h))
+        return self.jepa_out(h)
+
+    def compute_loss_and_aux(
+        self, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions, *, train: bool = False
+    ):
+        jepa_target = observation.jepa_target        # dropped by preprocess_observation -> grab it first
         preprocess_rng, noise_rng, time_rng = jax.random.split(rng, 3)
         observation = _model.preprocess_observation(preprocess_rng, observation, train=train)
 
@@ -218,11 +257,21 @@ class Pi0(_model.BaseModel):
         # Pi0Config.action_dim_loss_weights.
         per_dim_sq = jnp.square(v_t - u_t)
         if self.action_dim_loss_weights is None:
-            return jnp.mean(per_dim_sq, axis=-1)
-        w = jnp.asarray(self.action_dim_loss_weights, dtype=per_dim_sq.dtype)
-        # Normalise so the average loss scale stays close to the
-        # uniform case (avoids needing to retune the LR).
-        return jnp.sum(w * per_dim_sq, axis=-1) / jnp.sum(w)
+            flow_loss = jnp.mean(per_dim_sq, axis=-1)
+        else:
+            w = jnp.asarray(self.action_dim_loss_weights, dtype=per_dim_sq.dtype)
+            # Normalise so the average loss scale stays close to the
+            # uniform case (avoids needing to retune the LR).
+            flow_loss = jnp.sum(w * per_dim_sq, axis=-1) / jnp.sum(w)
+
+        if self.jepa_loss_weight <= 0 or jepa_target is None:
+            return flow_loss, {}
+        pred = self._jepa_predict(
+            prefix_out, len(observation.images), observation.tokenized_prompt.shape[1], actions
+        )
+        jepa_loss = jnp.mean(jnp.square(pred - jepa_target.astype(jnp.float32)), axis=(-2, -1))   # [b]
+        total = flow_loss + self.jepa_loss_weight * jepa_loss[..., None]
+        return total, {"flow_loss": jnp.mean(flow_loss), "jepa_loss": jnp.mean(jepa_loss)}
 
     @override
     def sample_actions(

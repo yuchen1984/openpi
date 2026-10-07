@@ -318,6 +318,39 @@ class ExtractFASTActions(DataTransformFn):
         }
 
 
+_JEPA_SIDECARS: dict = {}
+
+
+def _load_jepa_sidecar(sidecar_dir: str):
+    """Per-process cache: (latents memmap [N,cams,tok,dim] fp16, mean, std, episode_end[ep])."""
+    if sidecar_dir not in _JEPA_SIDECARS:
+        import json as _json
+        import os as _os
+
+        lat = np.load(_os.path.join(sidecar_dir, "latents.npy"), mmap_mode="r")
+        st = np.load(_os.path.join(sidecar_dir, "stats.npz"))
+        bounds = np.asarray(_json.load(open(_os.path.join(sidecar_dir, "episode_bounds.json"))), dtype=np.int64)
+        _JEPA_SIDECARS[sidecar_dir] = (lat, st["mean"].astype(np.float32), st["std"].astype(np.float32), bounds[:, 1])
+    return _JEPA_SIDECARS[sidecar_dir]
+
+
+@dataclasses.dataclass(frozen=True)
+class AttachJepaTarget(DataTransformFn):
+    """Training-only repack transform: attach the standardized V-JEPA latent of frame index+k (clamped to the
+    episode end) as data["jepa_target"] [cams*tokens, dim]. k=0 = the current-frame control. Reads the raw
+    LeRobot item, so it must run BEFORE RepackTransform."""
+
+    sidecar_dir: str
+    k: int = 10
+
+    def __call__(self, data: DataDict) -> DataDict:
+        lat, mean, std, ep_end = _load_jepa_sidecar(self.sidecar_dir)
+        i, e = int(data["index"]), int(data["episode_index"])
+        j = min(i + self.k, int(ep_end[e]) - 1)
+        z = (np.asarray(lat[j], dtype=np.float32) - mean) / std
+        return {**data, "jepa_target": z.reshape(-1, z.shape[-1])}
+
+
 @dataclasses.dataclass(frozen=True)
 class PromptFromLeRobotTask(DataTransformFn):
     """Extracts a prompt from the current LeRobot dataset task."""
