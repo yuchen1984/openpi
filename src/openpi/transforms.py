@@ -342,13 +342,14 @@ class AttachJepaTarget(DataTransformFn):
 
     sidecar_dir: str
     k: int = 10
+    key: str = "jepa_target"   # "clip_ctx" with k=0 for the E2 clip-context input
 
     def __call__(self, data: DataDict) -> DataDict:
         lat, mean, std, ep_end = _load_jepa_sidecar(self.sidecar_dir)
         i, e = int(data["index"]), int(data["episode_index"])
         j = min(i + self.k, int(ep_end[e]) - 1)
         z = (np.asarray(lat[j], dtype=np.float32) - mean) / std
-        return {**data, "jepa_target": z.reshape(-1, z.shape[-1])}
+        return {**data, self.key: z.reshape(-1, z.shape[-1])}
 
 
 @dataclasses.dataclass(frozen=True)

@@ -1,3 +1,4 @@
+import dataclasses
 import logging
 
 import einops
@@ -111,6 +112,14 @@ class Pi0(_model.BaseModel):
             self.jepa_in = nnx.Linear(2 * paligemma_config.width + 2 * q, config.jepa_hidden, rngs=rngs)
             self.jepa_mid = nnx.Linear(config.jepa_hidden, config.jepa_hidden, rngs=rngs)
             self.jepa_out = nnx.Linear(config.jepa_hidden, config.jepa_target_dim, rngs=rngs)
+        # E2 clip-context injection: created LAST so base/LoRA/jepa param init streams are unchanged.
+        self.clip_ctx_inject = str(config.clip_ctx_inject)
+        self.clip_ctx_dropout = float(config.clip_ctx_dropout)
+        if self.clip_ctx_inject:
+            q = self.action_in_proj.out_features
+            self.clip_kv_proj = nnx.Linear(config.clip_ctx_dim, q, rngs=rngs)
+            self.clip_attn = nnx.MultiHeadAttention(num_heads=config.clip_ctx_heads, in_features=q, qkv_features=q, out_features=q, decode=False, rngs=rngs)
+            self.clip_gate = nnx.Param(jnp.zeros((1,), dtype=jnp.float32))
 
         # This attribute gets automatically set by model.train() and model.eval().
         self.deterministic = True
@@ -189,6 +198,10 @@ class Pi0(_model.BaseModel):
             action_time_tokens = self.action_time_mlp_out(action_time_tokens)
             action_expert_tokens = action_time_tokens
             adarms_cond = None
+        if getattr(self, "clip_ctx_inject", "") and obs.clip_ctx is not None:
+            ctx = self.clip_kv_proj(obs.clip_ctx.astype(jnp.float32))
+            att = self.clip_attn(action_expert_tokens.astype(jnp.float32), ctx, ctx, decode=False)
+            action_expert_tokens = action_expert_tokens + (jnp.tanh(self.clip_gate.value) * att).astype(action_expert_tokens.dtype)
         tokens.append(action_expert_tokens)
         input_mask.append(jnp.ones(action_expert_tokens.shape[:2], dtype=jnp.bool_))
         # image/language/state inputs do not attend to action tokens
@@ -231,6 +244,10 @@ class Pi0(_model.BaseModel):
         jepa_target = observation.jepa_target        # dropped by preprocess_observation -> grab it first
         preprocess_rng, noise_rng, time_rng = jax.random.split(rng, 3)
         observation = _model.preprocess_observation(preprocess_rng, observation, train=train)
+        if train and getattr(self, "clip_ctx_inject", "") and observation.clip_ctx is not None and self.clip_ctx_dropout > 0:
+            # history dropout; key folded off preprocess_rng so the noise/time streams stay identical to the stock model
+            keep = jax.random.bernoulli(jax.random.fold_in(preprocess_rng, 7), 1.0 - self.clip_ctx_dropout, (observation.clip_ctx.shape[0], 1, 1))
+            observation = dataclasses.replace(observation, clip_ctx=observation.clip_ctx * keep.astype(observation.clip_ctx.dtype))
 
         batch_shape = actions.shape[:-2]
         noise = jax.random.normal(noise_rng, actions.shape)

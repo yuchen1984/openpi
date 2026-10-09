@@ -52,7 +52,7 @@ class CheckpointWeightLoader(WeightLoader):
         loaded_params = _model.restore_params(download.maybe_download(self.params_path), restore_type=np.ndarray)
         # Add all missing LoRA weights.
         # .*jepa.*: the training-only JEPA predictor head (Pi0Config.jepa_loss_weight > 0) starts fresh.
-        return _merge_params(loaded_params, params, missing_regex=".*lora.*|.*jepa.*")
+        return _merge_params(loaded_params, params, missing_regex=".*lora.*|.*jepa.*|.*clip.*")
 
 
 @dataclasses.dataclass(frozen=True)

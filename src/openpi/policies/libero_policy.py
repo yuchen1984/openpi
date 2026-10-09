@@ -83,6 +83,8 @@ class LiberoInputs(transforms.DataTransformFn):
         # Training-only JEPA auxiliary target (see transforms.AttachJepaTarget); absent at inference.
         if "jepa_target" in data:
             inputs["jepa_target"] = data["jepa_target"]
+        if "clip_ctx" in data:
+            inputs["clip_ctx"] = data["clip_ctx"]
 
         return inputs
 

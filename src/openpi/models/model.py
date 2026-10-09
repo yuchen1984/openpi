@@ -109,6 +109,10 @@ class Observation(Generic[ArrayT]):
     # JEPA auxiliary target (training only): standardized frozen V-JEPA latents of a FUTURE frame,
     # [*b, tokens, dim]. None everywhere except configs with Pi0Config.jepa_loss_weight > 0.
     jepa_target: at.Float[ArrayT, "*b n d"] | None = None
+    # V-JEPA clip context (E2, docs/jepa_vla_plan_e1_e3.md): standardized frozen clip latent of the CURRENT frame
+    # [*b, n, d]; injected into the action expert by gated cross-attention when Pi0Config.clip_ctx_inject is set.
+    # Unlike jepa_target it is needed at inference too, so preprocess_observation carries it.
+    clip_ctx: at.Float[ArrayT, "*b n d"] | None = None
 
     @classmethod
     def from_dict(cls, data: at.PyTree[ArrayT]) -> "Observation[ArrayT]":
@@ -131,6 +135,7 @@ class Observation(Generic[ArrayT]):
             token_ar_mask=data.get("token_ar_mask"),
             token_loss_mask=data.get("token_loss_mask"),
             jepa_target=data.get("jepa_target"),
+            clip_ctx=data.get("clip_ctx"),
         )
 
     def to_dict(self) -> at.PyTree[ArrayT]:
@@ -210,6 +215,7 @@ def preprocess_observation(
         tokenized_prompt_mask=observation.tokenized_prompt_mask,
         token_ar_mask=observation.token_ar_mask,
         token_loss_mask=observation.token_loss_mask,
+        clip_ctx=observation.clip_ctx,
     )
 
 

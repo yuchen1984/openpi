@@ -49,6 +49,15 @@ class Pi0Config(_model.BaseModelConfig):
     jepa_target_dim: int = 1024    # V-JEPA 2 ViT-L width
     jepa_hidden: int = 1024
 
+    # E2 clip-context injection (JEPA-VLA style gated cross-attention, docs/jepa_vla_plan_e1_e3.md E2.3): the
+    # action-expert tokens attend to a frozen V-JEPA 2.1 clip latent of the current frame (Observation.clip_ctx)
+    # through a tanh gate initialised at 0, so the model equals the stock one at step 0. "" = disabled (no params).
+    clip_ctx_inject: str = ""          # "" | "suffix"
+    clip_ctx_tokens: int = 34
+    clip_ctx_dim: int = 1024
+    clip_ctx_heads: int = 8
+    clip_ctx_dropout: float = 0.5      # history dropout: P(context zeroed) per sample during training
+
     def __post_init__(self):
         if self.max_token_len is None:
             object.__setattr__(self, "max_token_len", 200 if self.pi05 else 48)

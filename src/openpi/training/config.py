@@ -304,6 +304,8 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
     # Observation.jepa_target = standardized V-JEPA latent of frame index+jepa_k. Training-only.
     jepa_sidecar: str | None = None
     jepa_k: int = 10
+    # E2 clip-context sidecar (current-frame V-JEPA 2.1 clip latent -> Observation.clip_ctx; needed at inference too)
+    clip_sidecar: str | None = None
 
     @override
     def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
@@ -326,6 +328,9 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
         if self.jepa_sidecar is not None:
             repack_inputs.append(_transforms.AttachJepaTarget(self.jepa_sidecar, k=self.jepa_k))
             repack_map["jepa_target"] = "jepa_target"
+        if self.clip_sidecar is not None:
+            repack_inputs.append(_transforms.AttachJepaTarget(self.clip_sidecar, k=0, key="clip_ctx"))
+            repack_map["clip_ctx"] = "clip_ctx"
         repack_inputs.append(_transforms.RepackTransform(repack_map))
         # Truncate actions to action_dim so that e.g. a 7-dim config training
         # on an 8-dim dataset (with done signal) only sees the first 7 dims.
@@ -4651,6 +4656,29 @@ def _jepa_real_cfg(name: str, repo_id: str, steps: int, *, jepa_k: int | None = 
         lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=200, peak_lr=2e-5, decay_steps=steps, decay_lr=2e-6),
     )
 
+
+# E2 (docs/jepa_vla_plan_e1_e3.md): clip-context arms. A0 = pi05_base_finetune_lift_slv_wb_jepa_base (same params,
+# the clip modules are created last and the gate starts at 0, so step-0 loss is identical). A2 = V-JEPA 2.1 16-frame
+# clip latent (block 11, 4x4+mean per camera); A2s = the same model fed the STATIC-clip latent (same token count, no
+# motion) -- the "second encoder vs temporal context" control. Only run if the G-E2 probe passes.
+_CLIP_SIDECARS = "/home/yu/dev/uf850-experiment/experiments/jepa_vla/latents_clip"
+
+
+def _clip_real_cfg(name: str, repo_id: str, steps: int, sidecar: str | None):
+    base = _jepa_real_cfg(name, repo_id, steps)
+    return dataclasses.replace(
+        base,
+        model=dataclasses.replace(base.model, clip_ctx_inject="suffix" if sidecar else "", clip_ctx_tokens=34, clip_ctx_dim=1024),
+        data=dataclasses.replace(base.data, clip_sidecar=None if sidecar is None else f"{_CLIP_SIDECARS}/{repo_id.replace('/', '__')}__{sidecar}"),
+    )
+
+
+_CONFIGS += [
+    _clip_real_cfg("pi05_base_finetune_lift_slv_wb_clip", "local/lift_slv_wb_jepa_train94", 30_000, "mid17"),
+    _clip_real_cfg("pi05_base_finetune_lift_slv_wb_clip_static", "local/lift_slv_wb_jepa_train94", 30_000, "static_mid17"),
+    _clip_real_cfg("pi05_base_finetune_cloth_pick_v1_clip", "local/cloth_pick_v1_jepa_train44", 24_000, "mid17"),
+    _clip_real_cfg("pi05_base_finetune_cloth_pick_v1_clip_static", "local/cloth_pick_v1_jepa_train44", 24_000, "static_mid17"),
+]
 
 _CONFIGS += [
     _jepa_real_cfg("pi05_base_finetune_lift_slv_wb_jepa_base", "local/lift_slv_wb_jepa_train94", 30_000),
