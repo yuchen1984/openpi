@@ -194,6 +194,8 @@ def train_step(
         "param_norm": optax.global_norm(kernel_params),
         **aux,
     }
+    if getattr(model, "clip_ctx_inject", ""):   # E2: is the zero-init clip gate opening?
+        info["clip_gate_tanh"] = jnp.tanh(model.clip_gate.value[0])
     return new_state, info
 
 

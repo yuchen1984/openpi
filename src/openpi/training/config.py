@@ -4680,6 +4680,14 @@ _CONFIGS += [
     _clip_real_cfg("pi05_base_finetune_cloth_pick_v1_clip_static", "local/cloth_pick_v1_jepa_train44", 24_000, "static_mid17"),
 ]
 
+# E2 exploratory (NOT pre-registered; docs/jepa_vla_e2_e3_results.md): stage 1's zero-init gate opened only to
+# tanh 0.005 at the shared LoRA LR (2e-5), so the clip branch was never delivered. Same arms with the fresh clip modules
+# (kv_proj, cross-attn, gate) at 10x the LR; everything else identical, so step-0 loss still equals A0's.
+_CONFIGS += [
+    dataclasses.replace(c, name=c.name + "_lr10", optimizer=_optimizer.AdamW(clip_gradient_norm=1.0, lr_mult_regex=r"\['clip_", lr_mult=10.0))
+    for c in _CONFIGS if c.name in ("pi05_base_finetune_lift_slv_wb_clip", "pi05_base_finetune_lift_slv_wb_clip_static")
+]
+
 _CONFIGS += [
     _jepa_real_cfg("pi05_base_finetune_lift_slv_wb_jepa_base", "local/lift_slv_wb_jepa_train94", 30_000),
     _jepa_real_cfg("pi05_base_finetune_lift_slv_wb_jepa_aux", "local/lift_slv_wb_jepa_train94", 30_000, jepa_k=10),

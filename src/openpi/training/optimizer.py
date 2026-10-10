@@ -1,6 +1,8 @@
 import dataclasses
+import re
 from typing import Protocol, runtime_checkable
 
+import jax
 import jax.numpy as jnp
 import optax
 
@@ -72,6 +74,10 @@ class AdamW(OptimizerConfig):
     # Changing this to 0 can cause out-of-memory errors for some reason, so we set it to a negligible value.
     weight_decay: float = 1e-10
     clip_gradient_norm: float = 1.0
+    # Optional per-parameter LR multiplier: updates of params whose key path matches `lr_mult_regex` are scaled by
+    # `lr_mult` (e.g. freshly initialised adapter modules next to a LoRA-rate backbone). Off by default.
+    lr_mult_regex: str = ""
+    lr_mult: float = 1.0
 
     def create(
         self,
@@ -81,6 +87,10 @@ class AdamW(OptimizerConfig):
         tx = optax.adamw(
             lr, b1=self.b1, b2=self.b2, eps=self.eps, weight_decay=self.weight_decay, mask=weight_decay_mask
         )
+        if self.lr_mult_regex and self.lr_mult != 1.0:
+            pat = re.compile(self.lr_mult_regex)
+            mask = lambda params: jax.tree_util.tree_map_with_path(lambda path, _: bool(pat.search(jax.tree_util.keystr(path))), params)
+            tx = optax.chain(tx, optax.masked(optax.scale(self.lr_mult), mask))
 
         return optax.chain(optax.clip_by_global_norm(self.clip_gradient_norm), tx)
 
