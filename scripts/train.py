@@ -196,6 +196,8 @@ def train_step(
     }
     if getattr(model, "clip_ctx_inject", ""):   # E2: is the zero-init clip gate opening?
         info["clip_gate_tanh"] = jnp.tanh(model.clip_gate.value[0])
+        # with a fixed gate the optimiser can still cancel the branch by shrinking the cross-attn weights -- watch them
+        info["clip_attn_norm"] = optax.global_norm(nnx.state(model.clip_attn, nnx.Param))
     return new_state, info
 
 

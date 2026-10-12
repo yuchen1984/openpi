@@ -4780,6 +4780,14 @@ _CONFIGS += [
     for c in _CONFIGS if c.name in ("pi05_base_finetune_lift_slv_wb_clip", "pi05_base_finetune_lift_slv_wb_clip_static")
 ]
 
+# E2 follow-up (pre-registered in docs/jepa_vla_e2_e3_results.md, "E2-F"): the zero-init gate never opened at 1x or
+# 10x LR, so force delivery -- the gate is a CONSTANT 1.0 (clip_gate param unused), clip modules at the stock LR.
+# Step-0 loss no longer equals A0's (the fresh cross-attn output is added from step 0); that is the point.
+_CONFIGS += [
+    dataclasses.replace(c, name=c.name + "_g1", model=dataclasses.replace(c.model, clip_gate_fixed=1.0))
+    for c in _CONFIGS if c.name in ("pi05_base_finetune_lift_slv_wb_clip", "pi05_base_finetune_lift_slv_wb_clip_static")
+]
+
 _CONFIGS += [
     _jepa_real_cfg("pi05_base_finetune_lift_slv_wb_jepa_base", "local/lift_slv_wb_jepa_train94", 30_000),
     _jepa_real_cfg("pi05_base_finetune_lift_slv_wb_jepa_aux", "local/lift_slv_wb_jepa_train94", 30_000, jepa_k=10),

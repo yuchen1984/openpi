@@ -57,6 +57,7 @@ class Pi0Config(_model.BaseModelConfig):
     clip_ctx_dim: int = 1024
     clip_ctx_heads: int = 8
     clip_ctx_dropout: float = 0.5      # history dropout: P(context zeroed) per sample during training
+    clip_gate_fixed: float = 0.0       # != 0: constant gate in place of tanh(clip_gate) (param unused) -- forces delivery
 
     def __post_init__(self):
         if self.max_token_len is None:

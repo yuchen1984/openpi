@@ -115,6 +115,7 @@ class Pi0(_model.BaseModel):
         # E2 clip-context injection: created LAST so base/LoRA/jepa param init streams are unchanged.
         self.clip_ctx_inject = str(config.clip_ctx_inject)
         self.clip_ctx_dropout = float(config.clip_ctx_dropout)
+        self.clip_gate_fixed = float(config.clip_gate_fixed)
         if self.clip_ctx_inject:
             q = self.action_in_proj.out_features
             self.clip_kv_proj = nnx.Linear(config.clip_ctx_dim, q, rngs=rngs)
@@ -201,7 +202,8 @@ class Pi0(_model.BaseModel):
         if getattr(self, "clip_ctx_inject", "") and obs.clip_ctx is not None:
             ctx = self.clip_kv_proj(obs.clip_ctx.astype(jnp.float32))
             att = self.clip_attn(action_expert_tokens.astype(jnp.float32), ctx, ctx, decode=False)
-            action_expert_tokens = action_expert_tokens + (jnp.tanh(self.clip_gate.value) * att).astype(action_expert_tokens.dtype)
+            gate = self.clip_gate_fixed if getattr(self, "clip_gate_fixed", 0.0) else jnp.tanh(self.clip_gate.value)
+            action_expert_tokens = action_expert_tokens + (gate * att).astype(action_expert_tokens.dtype)
         tokens.append(action_expert_tokens)
         input_mask.append(jnp.ones(action_expert_tokens.shape[:2], dtype=jnp.bool_))
         # image/language/state inputs do not attend to action tokens
