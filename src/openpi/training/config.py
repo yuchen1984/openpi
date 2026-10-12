@@ -2306,6 +2306,98 @@ _CONFIGS = [
         ),
     ),
     #
+    # SIDE-AGNOSTIC prompt twins of pi05_base_finetune_lift_slv_wb_chunkwise (user
+    # 2026-10-12), same 150 episodes / observations / actions / 30k recipe, only the
+    # prompts differ (uf850-branch2 scripts/make_side_agnostic_set.py):
+    #   _noside : EVERY prompt loses its side word ("pick up and lift the blue sleeve")
+    #             -> can the VLM backbone map an untrained "left"/"right" zero-shot?
+    #   _side50 : exactly half of each side x colour group loses it (seeded), the rest
+    #             keep "left"/"right" -> does a mixed set keep the side and lose the hedge?
+    # Evaluated with the ORIGINAL side prompts (pre-registered: scripts/side_agnostic_decide.py).
+    #
+    TrainConfig(
+        name="pi05_base_finetune_lift_slv_wb_chunkwise_noside",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,          # image-only, as real_cube_v4 (gripper EE task)
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6) — continuous jaw openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/lift_slv_wb_150ep_chunkwise_noside",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    TrainConfig(
+        name="pi05_base_finetune_lift_slv_wb_chunkwise_side50",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,          # image-only, as real_cube_v4 (gripper EE task)
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+            action_dim_loss_weights=(
+                1.0, 1.0, 1.0, 1.0, 1.0, 1.0,  # delta_pos, delta_ori
+                2.0,                            # gripper_cmd (dim 6) — continuous jaw openness
+                1.0,                            # done (dim 7)
+                *([1.0] * 24),                  # padding dims 8..31
+            ),
+        ),
+        data=LeRobotLiberoDataConfig(
+            repo_id="local/lift_slv_wb_150ep_chunkwise_side50",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=True,
+            action_dim=8,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "./checkpoints/pi05_base/params"
+        ),
+        freeze_filter=pi0_config.Pi0Config(
+            pi05=True,
+            paligemma_variant="gemma_2b_lora",
+            action_expert_variant="gemma_300m_lora",
+        ).get_freeze_filter(),
+        ema_decay=None,
+        num_train_steps=30_000,
+        batch_size=2,
+        save_interval=2_000,
+        keep_period=4_000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=200,
+            peak_lr=2e-5,
+            decay_steps=30_000,
+            decay_lr=2e-6,
+        ),
+    ),
+    #
     # grab_template_v1 (user 2026-10-05): real NERO AGX jaw approaches the template
     # and GRABS its overlay, then holds ("grab the overlay of the template").
     # local/grab_template_v1_25ep = 25 of 32 recorded eps, 4,587 frames. EXCLUDED: ep3-8
